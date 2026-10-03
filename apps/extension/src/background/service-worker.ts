@@ -146,11 +146,6 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
     await resetTransferRuntime()
     return result
   }
-  if (request.type === "PERSONAL_SAVE_INFORMATION") return admin().saveInformation(request.information)
-  if (request.type === "PERSONAL_VALIDATE_PENDING") return admin().validatePending(request.revisionId, request.information)
-  if (request.type === "PERSONAL_DELETE_FACT") return admin().deleteFact(request.path)
-  if (request.type === "PERSONAL_DELETE_REVISION") return admin().deleteRevision(request.revisionId)
-  if (request.type === "PERSONAL_IMPORT_INFORMATION") return admin().importInformation(request.fileName, request.content)
   if (request.type === "PERSONAL_CLEAR_ALL") {
     await resetTransferRuntime()
     await admin().clearAll()

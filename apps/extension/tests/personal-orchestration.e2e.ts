@@ -69,13 +69,13 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
     })
   }
 
-  test("opens ReKeyZero Admin from the Personal Side Panel", async () => {
+  test("opens RekeyZero Admin from the Personal Side Panel", async () => {
     const workspacePromise = context.waitForEvent("page")
-    await extensionPage.getByRole("button", { name: "Open ReKeyZero Admin" }).click()
+    await extensionPage.getByRole("button", { name: "Open RekeyZero Admin" }).click()
     const workspace = await workspacePromise
     await workspace.waitForLoadState("domcontentloaded")
     expect(new URL(workspace.url()).pathname).toBe("/rekeyzero.html")
-    await expect(workspace).toHaveTitle("ReKeyZero Admin")
+    await expect(workspace).toHaveTitle("RekeyZero Admin")
     await expect(workspace.getByRole("button", { name: "Profiles" })).toBeVisible()
     await expect(workspace.getByRole("button", { name: "AI Setups" })).toBeVisible()
     await workspace.getByRole("button", { name: "Log", exact: true }).click()
@@ -222,7 +222,7 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
   test("edits and deletes a Profile in Admin and refreshes the Side Panel", async () => {
     const profile = (await request<MappingProfile[]>({ type: "TRANSFER", command: { type: "GET_MAPPING_PROFILES" } }))[0]
     const adminPromise = context.waitForEvent("page")
-    await extensionPage.getByRole("button", { name: "Open ReKeyZero Admin" }).click()
+    await extensionPage.getByRole("button", { name: "Open RekeyZero Admin" }).click()
     const admin = await adminPromise
     await admin.waitForLoadState("domcontentloaded")
     await admin.locator(".profile-list > div", { hasText: profile.name }).getByRole("button", { name: "Open" }).click()

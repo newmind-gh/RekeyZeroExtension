@@ -20,6 +20,7 @@ const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
 const manifestSource = JSON.parse(
   readFileSync(join(root, `manifest.${profile}.json`), "utf8"),
 )
+if (packageJson.version !== manifestSource.version) throw new Error("Package and extension versions must match")
 const commit = execFileSync("git", ["-c", `safe.directory=${resolve(root, "..", "..").replaceAll("\\", "/")}`, "rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
@@ -107,6 +108,7 @@ writeFileSync(
   join(releaseRoot, `${artifactName}.manifest.json`),
   `${JSON.stringify({ ...report, package_sha256: packageSha256 }, null, 2)}\n`,
 )
+writeFileSync(join(releaseRoot, `${artifactName}.sha256`), `${packageSha256}  ${artifactName}.zip\n`)
 process.stdout.write(`${zipPath}\nSHA-256 ${packageSha256}\n`)
 
 function sha256(value) {

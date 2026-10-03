@@ -19,23 +19,11 @@ export type PageControl = {
   options: Array<{ value: string; label: string }>
 }
 
-export type ExternalContextEnvelope = {
-  task: "field_match"
-  provider_id: string
-  provider_name: string
-  provider_origin: string
-  provider_base_url: string
-  provider_model: string
-  controls: Array<{ control_id: string; label: string; label_text?: string; group_text?: string; type: string }>
-  candidates: Array<{ information_path: string; label_text?: string; group_text?: string; value: ScalarValue }>
-}
-
 export type PersonalHomeData = {
   profiles: MappingProfile[]
 }
 
 export type PersonalAiSettingsView = {
-  aiMode: "local_only" | "local_then_ask_external"
   selectedModelId?: string | null
   localModelEnabled: boolean
   localModelId: string | null
@@ -66,14 +54,4 @@ export type PersonalAiSettingsView = {
     hasKey: boolean
     rememberKey: boolean
   }>
-  provider: {
-    id: string
-    displayName: string
-    baseUrl: string
-    model: string
-    rememberKey: boolean
-    enabled: boolean
-    hasKey: boolean
-  } | null
-  neverSendInformationPaths: string[]
 }

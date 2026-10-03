@@ -1,3 +1,6 @@
+import "fake-indexeddb/auto"
+
+import { matchFieldsWithBuiltinApi } from "./builtin-api-field-matcher"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -148,4 +151,54 @@ describe("direct API providers", () => {
       hasKey: false,
     })
   })
+
+  it.each(["personal-gemini-api-v1", "personal-deepseek-api-v1", "personal-gpt-api-v1"])(
+    "%s never serializes source or target runtime values, including retries",
+    async (modelId) => {
+      await configureBuiltinApiModel({ modelId, model: "fixture-model", rememberKey: true, apiKey: "fixture-key" })
+      const definition = builtinApiModel(modelId)
+      const response = (text: string) => new Response(JSON.stringify(definition.provider === "gemini"
+        ? { candidates: [{ content: { parts: [{ text }] } }] }
+        : { choices: [{ message: { content: text } }] }), { status: 200 })
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(response("invalid JSON"))
+        .mockResolvedValueOnce(response('{"decisions":[{"target":"Destination beta field","source":null}]}'))
+      vi.stubGlobal("fetch", fetchMock)
+      await matchFieldsWithBuiltinApi({
+        modelId,
+        controls: [{
+          control_id: "target", tag: "input", type: "text", role: "", name: "target",
+          label: "Destination beta field", placeholder: "", required: false, disabled: false,
+          current_value: "PRIVATE_TARGET_7924", checked: null, options: [],
+        }],
+        candidates: [
+          { information_path: "source", label_text: "Origin alpha field", type: "text", value: "PRIVATE_SOURCE_8317" },
+          { information_path: "numeric", label_text: "Origin gamma field", type: "number", value: 9876543210123 },
+        ],
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      for (const [, options] of fetchMock.mock.calls) {
+        const body = String(options.body)
+        expect(body).toContain("Origin alpha field")
+        expect(body).not.toContain("PRIVATE_SOURCE_8317")
+        expect(body).not.toContain("PRIVATE_TARGET_7924")
+        expect(body).not.toContain("9876543210123")
+      }
+      expect(JSON.stringify(localValues)).not.toContain("fixture-key")
+      expect(await builtinApiModelConfig(modelId)).toMatchObject({ rememberKey: false, hasKey: true })
+    },
+  )
+
+  it("migrates a remembered built-in credential once and removes the durable key", async () => {
+    const modelId = "personal-gemini-api-v1"
+    localValues[`personalRememberedProviderKey:${modelId}`] = {
+      origin: "https://generativelanguage.googleapis.com", apiKey: "legacy-fixture-key",
+    }
+    localValues.rekeyzeroPersonalApiModelConfigs = { [modelId]: { model: "fixture-model", rememberKey: true } }
+    expect(await builtinApiModelConfig(modelId)).toMatchObject({ hasKey: true, rememberKey: false })
+    expect(JSON.stringify(localValues)).not.toContain("legacy-fixture-key")
+    for (const key of Object.keys(sessionValues)) delete sessionValues[key]
+    expect(await builtinApiModelConfig(modelId)).toMatchObject({ hasKey: false })
+  })
+
 })

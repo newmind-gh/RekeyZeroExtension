@@ -9,34 +9,25 @@ describe("Personal optional host permissions", () => {
 
     expect(await removeHostPermissionIfUnused({
       origin: "https://unused.example.test/v1",
-      providers: [],
+      providerOrigins: [],
       profiles: [],
     })).toBe(true)
     expect(remove).toHaveBeenCalledWith({ origins: ["https://unused.example.test/*"] })
   })
 
-  it("retains an enabled provider origin but ignores disabled providers", async () => {
+  it("retains a configured direct-provider origin", async () => {
     const remove = vi.fn(async () => true)
     vi.stubGlobal("chrome", { permissions: { remove } })
-    const provider = {
-      id: "provider",
-      providerType: "openai_compatible" as const,
-      displayName: "Provider",
-      baseUrl: "https://shared.example.test/v1",
-      model: "model",
-      rememberKey: false,
-      enabled: true,
-    }
     expect(await removeHostPermissionIfUnused({
       origin: "https://shared.example.test",
-      providers: [provider],
+      providerOrigins: ["https://shared.example.test"],
       profiles: [],
     })).toBe(false)
     expect(remove).not.toHaveBeenCalled()
 
     expect(await removeHostPermissionIfUnused({
       origin: "https://shared.example.test",
-      providers: [{ ...provider, enabled: false }],
+      providerOrigins: [],
       profiles: [],
     })).toBe(true)
     expect(remove).toHaveBeenCalledWith({ origins: ["https://shared.example.test/*"] })
@@ -57,14 +48,14 @@ describe("Personal optional host permissions", () => {
 
     expect(await removeHostPermissionIfUnused({
       origin: "https://target.example.test/form",
-      providers: [],
+      providerOrigins: [],
       profiles: [profile],
     })).toBe(false)
     expect(remove).not.toHaveBeenCalled()
 
     expect(await removeHostPermissionIfUnused({
       origin: "https://target.example.test/form",
-      providers: [],
+      providerOrigins: [],
       profiles: [],
     })).toBe(true)
     expect(remove).toHaveBeenCalledWith({ origins: ["https://target.example.test/*"] })

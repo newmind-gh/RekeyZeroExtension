@@ -1,5 +1,7 @@
 # RekeyZero
 
+[![CI](https://github.com/newmind-gh/RekeyZeroExtension/actions/workflows/ci.yml/badge.svg)](https://github.com/newmind-gh/RekeyZeroExtension/actions/workflows/ci.yml)
+
 ![RekeyZero — stop re-keying data between web applications](docs/images/rekeyzero-hero.svg)
 
 <h2 align="center">Stop re-keying data between web applications.</h2>
@@ -105,7 +107,7 @@ From the repository root on Windows:
 .\setup.ps1
 ```
 
-The setup script installs dependencies for the extension and web application, runs extension tests and checks, and checks the web application. No Python environment, FastAPI service, Ollama instance, or repository `.env` file is required for the Personal extension.
+The setup script installs extension dependencies and runs extension tests and checks. No Python environment, FastAPI service, Ollama instance, or repository `.env` file is required for the Personal extension.
 
 ### Build and load the extension
 
@@ -154,7 +156,7 @@ RekeyZero supports both **non-AI** and **AI-enabled** workflows. Use **ZeroKey P
 
 ![RekeyZero Personal Side Panel showing a saved AI ZeroKey Profile with validated field matches](docs/images/rekeyzero-ai-profile-saved.png)
 
-## ReKeyZero Admin
+## RekeyZero Admin
 
 The Side Panel gear button opens the extension-owned Admin page. Its current sections are:
 
@@ -190,7 +192,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The manually triggered GitHub Actions workflow checks the web application, checks and tests the extension, runs the Chromium end-to-end suite, scans the release, and uploads the generated release candidates as a workflow artifact.
+Pull requests run extension unit tests, TypeScript checks, and builds. Pushes to `main` and manual CI runs also run Chromium end-to-end validation, scan release packages, and upload release candidates. Version tags run the complete release pipeline before publishing ZIP, SHA-256, and manifest assets to GitHub Releases.
 
 ## Release package
 
@@ -208,22 +210,23 @@ The release command writes the following repository-level outputs:
 dist/rekeyzero-personal/
 dist/rekeyzero-personal.zip
 dist/rekeyzero-personal.manifest.json
+dist/rekeyzero-personal.sha256
 ```
 
-The package process records source identity and file hashes, scans for secrets and remote-hosted executable references, and embeds `release-manifest.json` in the ZIP. Product changes require a new package and a new real-browser validation of that exact ZIP.
+The package process records source identity and file hashes, scans for secrets and remote-hosted executable references, and embeds `release-manifest.json` in the ZIP. The `.sha256` file provides the ZIP checksum. Product changes require a new package and browser validation.
+
+For the first release, commit and push the reviewed changes to `main`, wait for CI to pass, then tag that commit `v0.1.0` and push the tag. The tag must match both package and extension versions; the Release workflow validates the source and publishes the assets automatically. Download the ZIP from [GitHub Releases](https://github.com/newmind-gh/RekeyZeroExtension/releases), verify its checksum, extract it, then load the extracted directory through **Load unpacked**.
 
 ## Repository layout
 
 ```text
 apps/extension/          Personal Chromium extension
-apps/web/                Optional operator web UI; requires a compatible external API
 tests/extension-portal/  Synthetic pages used by extension tests
-.github/workflows/       Manually triggered CI and release-candidate workflow
+.github/workflows/       CI and version-tag release workflows
+docs/                    Product documentation and screenshots
 ```
 
-The Personal extension and synthetic test pages do not depend on `apps/web`.
-
-This repository also contains a standalone web application source and synthetic browser-test pages. It does not include a RekeyZero backend, server-managed AI credentials, or a local-model service.
+This repository contains the extension and synthetic test portals. Legacy web and platform packages have been removed. Generated `dist/` files are ignored by Git and distributed through Actions artifacts and Releases.
 
 ## Current limitations
 
@@ -234,7 +237,6 @@ Real customer portals require acceptance testing for site-specific autosave, del
 ## Project documentation
 
 - [Extension details](apps/extension/README.md)
-- [Web application](apps/web/README.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 - [Support](SUPPORT.md)

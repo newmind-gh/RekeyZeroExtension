@@ -108,11 +108,8 @@ describe("Local AI Fill Setup orchestration", () => {
     await resetTransferRuntime()
     await putStored("settings", {
       id: "personal",
-      aiMode: "local_only",
       localModelId: "personal-qwen35-08b-v1",
       localModelEnabled: true,
-      externalProviderId: null,
-      externalDataPolicy: { default: "ask", neverSendInformationPaths: [] },
     })
   })
 

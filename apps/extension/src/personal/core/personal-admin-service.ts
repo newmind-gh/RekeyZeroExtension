@@ -1,12 +1,3 @@
-import { OpenAiCompatibleProvider } from "../ai/byo/openai-compatible"
-import {
-  canonicalProviderBaseUrl,
-  canonicalProviderOrigin,
-  deleteProviderKey,
-  getProviderKey,
-  saveProviderKey,
-  setProviderKeyPersistence,
-} from "../ai/byo/secret-store"
 import { LocalModelProvider } from "../ai/local-model-provider"
 import { DEFAULT_LOCAL_MODEL_ID, LOCAL_MODELS, localModel } from "../ai/model-registry"
 import { PersonalModelRouter } from "../ai/model-router"
@@ -23,20 +14,17 @@ import {
   getStored,
   putStored,
 } from "../storage/indexed-db"
-import type { PersonalLlmLog, PersonalLlmLogMatch, PersonalProviderConfig, PersonalSettings } from "../storage/schema"
+import type { PersonalLlmLog, PersonalLlmLogMatch, PersonalSettings } from "../storage/schema"
 import type { PageControl, PersonalAiSettingsView, PersonalHomeData } from "../../shared/types"
 import type { MappingProfile } from "../../transfer/types"
 import { notifyProfilesChanged } from "../../transfer/store"
-import { PersonalRecordService, flattenInformation, setInformationPath } from "./record-service"
+import { configuredBuiltinApiOrigins } from "../ai/direct-api-provider"
 import type { PersonalAdminApi } from "./personal-admin-api"
 
 const DEFAULT_SETTINGS: PersonalSettings = {
   id: "personal",
-  aiMode: "local_only",
   localModelId: DEFAULT_LOCAL_MODEL_ID,
   localModelEnabled: false,
-  externalProviderId: null,
-  externalDataPolicy: { default: "ask", neverSendInformationPaths: [] },
 }
 
 type ManagedLocalProvider = PersonalModelProvider & {
@@ -44,51 +32,11 @@ type ManagedLocalProvider = PersonalModelProvider & {
   delete(): Promise<void>
 }
 
-function parseImportedInformation(fileName: string, content: string): Record<string, unknown> {
-  const extension = fileName.toLowerCase().split(".").at(-1)
-  if (extension === "json") {
-    const parsed = JSON.parse(content) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("Imported JSON must contain an object")
-    }
-    return parsed as Record<string, unknown>
-  }
-
-  const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  if (!lines.length) throw new Error("The imported file is empty")
-  const pairs = extension === "csv"
-    ? lines.slice(1).map((line) => {
-        const separator = line.indexOf(",")
-        return separator > 0 ? [line.slice(0, separator), line.slice(separator + 1)] : []
-      })
-    : lines.map((line) => {
-        const separator = line.indexOf(":")
-        return separator > 0 ? [line.slice(0, separator), line.slice(separator + 1)] : []
-      })
-  if (!pairs.length || pairs.some((pair) => pair.length !== 2)) {
-    throw new Error(extension === "csv"
-      ? "CSV must have a header row followed by path,value rows"
-      : "Text must contain one path: value pair per line")
-  }
-  return pairs.reduce(
-    (information, [path, value]) => setInformationPath(information, path.trim(), value.trim()),
-    {} as Record<string, unknown>,
-  )
-}
-
-function nestedInformation(information: Record<string, unknown>): Record<string, unknown> {
-  return Object.entries(information).reduce(
-    (result, [path, value]) => setInformationPath(result, path, value),
-    {} as Record<string, unknown>,
-  )
-}
-
 export class PersonalAdminService implements PersonalAdminApi {
   constructor(
     private readonly modelRouter = new PersonalModelRouter(),
     private readonly localProvider: (modelId: string) => ManagedLocalProvider =
       (modelId) => new LocalModelProvider(modelId),
-    private readonly records = new PersonalRecordService(),
   ) {}
 
   async settings(): Promise<PersonalSettings> {
@@ -148,64 +96,20 @@ export class PersonalAdminService implements PersonalAdminApi {
     if (!deleted) throw new Error("Mapping Profile is unavailable")
     await deleteStored("transfer_mapping_profiles", profileId)
     const remaining = await getAllStored<MappingProfile>("transfer_mapping_profiles")
-    const providers = await getAllStored<PersonalProviderConfig>("provider_configs")
+    const providerOrigins = await configuredBuiltinApiOrigins()
     const origins = [...new Set([deleted.source.origin, ...deleted.targets.map((target) => target.origin)])]
     await Promise.all(origins.map((origin) => removeHostPermissionIfUnused({
       origin,
-      providers,
+      providerOrigins,
       profiles: remaining,
     }).catch(() => false)))
     await notifyProfilesChanged()
     return this.home()
   }
 
-  async saveInformation(information: Record<string, unknown>): Promise<PersonalHomeData> {
-    await this.records.saveValidated(nestedInformation(information))
-    return this.home()
-  }
-
-  async validatePending(
-    revisionId: string,
-    information?: Record<string, unknown>,
-  ): Promise<PersonalHomeData> {
-    await this.records.validatePending(
-      revisionId,
-      information ? nestedInformation(information) : undefined,
-    )
-    return this.home()
-  }
-
-  async deleteFact(path: string): Promise<PersonalHomeData> {
-    await this.records.deleteFact(path)
-    return this.home()
-  }
-
-  async deleteRevision(revisionId: string): Promise<PersonalHomeData> {
-    await this.records.deleteRevision(revisionId)
-    return this.home()
-  }
-
-  async importInformation(fileName: string, content: string): Promise<PersonalHomeData> {
-    const imported = parseImportedInformation(fileName, content)
-    const current = await this.records.getCurrentRevision()
-    const information = Object.entries(flattenInformation(imported)).reduce(
-      (merged, [path, value]) => setInformationPath(merged, path, value),
-      structuredClone(current?.information ?? {}),
-    )
-    await this.records.createPending(information, "import", Object.entries(flattenInformation(imported)).map(
-      ([path, value]) => ({ path, excerpt: `${path}: ${String(value ?? "")}` }),
-    ))
-    return this.home()
-  }
-
   async clearAll(): Promise<void> {
-    const [providers, profiles] = await Promise.all([
-      getAllStored<PersonalProviderConfig>("provider_configs"),
-      getAllStored<MappingProfile>("transfer_mapping_profiles"),
-    ])
-    await Promise.all(providers.map((provider) => deleteProviderKey(provider.id)))
+    const profiles = await getAllStored<MappingProfile>("transfer_mapping_profiles")
     const origins = Array.from(new Set([
-      ...providers.map((provider) => hostPermissionPattern(provider.baseUrl)),
       ...profiles.flatMap((profile) => [
         hostPermissionPattern(profile.source.origin),
         ...profile.targets.map((target) => hostPermissionPattern(target.origin)),
@@ -217,7 +121,7 @@ export class PersonalAdminService implements PersonalAdminApi {
 
   async exportData(): Promise<string> {
     const stores = [
-      "records", "revisions", "evidence", "provider_configs", "settings",
+      "settings",
       "transfer_mapping_profiles", "llm_logs",
     ] as const
     const exported = Object.fromEntries(
@@ -251,12 +155,11 @@ export class PersonalAdminService implements PersonalAdminApi {
       capabilities: {
         local_ai_enabled: settings.localModelEnabled,
         local_ai_status: ai.localModelStatus,
-        external_provider_configured: Boolean(ai.provider),
-        external_provider_type: ai.provider ? "openai_compatible" : null,
+        external_provider_configured: (await configuredBuiltinApiOrigins()).length > 0,
       },
       exclusions: [
         "API keys",
-        "Information Record values",
+        "source field values",
         "Mapping Profile content",
         "page text",
         "provider response bodies",
@@ -283,26 +186,12 @@ export class PersonalAdminService implements PersonalAdminApi {
     }))
     const local = localModels.find((model) => model.id === settings.localModelId)
       ?? { status: "not_ready" as const, detail: "No Local AI model selected" }
-    const provider = settings.externalProviderId
-      ? await getStored<PersonalProviderConfig>("provider_configs", settings.externalProviderId)
-      : undefined
     return {
-      aiMode: settings.aiMode,
       localModelEnabled: settings.localModelEnabled,
       localModelId: settings.localModelId,
       localModelStatus: local.status,
       localModelDetail: local.detail,
       localModels,
-      provider: provider ? {
-        id: provider.id,
-        displayName: provider.displayName,
-        baseUrl: provider.baseUrl,
-        model: provider.model,
-        rememberKey: provider.rememberKey,
-        enabled: provider.enabled,
-        hasKey: Boolean(await getProviderKey(provider.id, provider.baseUrl)),
-      } : null,
-      neverSendInformationPaths: settings.externalDataPolicy.neverSendInformationPaths,
     }
   }
 
@@ -400,137 +289,4 @@ export class PersonalAdminService implements PersonalAdminApi {
     return this.aiSettings()
   }
 
-  async configureAi(input: {
-    aiMode: PersonalSettings["aiMode"]
-    localModelEnabled: boolean
-    provider?: {
-      displayName: string
-      baseUrl: string
-      model: string
-      rememberKey: boolean
-      apiKey?: string
-    }
-    neverSendInformationPaths: string[]
-  }): Promise<PersonalAiSettingsView> {
-    const settings = await this.settings()
-    settings.aiMode = input.aiMode
-    settings.localModelEnabled = input.localModelEnabled
-    settings.externalDataPolicy.neverSendInformationPaths = input.neverSendInformationPaths
-    if (input.provider) {
-      const existingProvider = settings.externalProviderId
-        ? await getStored<PersonalProviderConfig>("provider_configs", settings.externalProviderId)
-        : undefined
-      const provider: PersonalProviderConfig = {
-        id: settings.externalProviderId ?? `provider_${crypto.randomUUID().replaceAll("-", "")}`,
-        providerType: "openai_compatible",
-        displayName: input.provider.displayName,
-        baseUrl: input.provider.baseUrl,
-        model: input.provider.model,
-        rememberKey: input.provider.rememberKey,
-        enabled: true,
-      }
-      canonicalProviderBaseUrl(provider.baseUrl)
-      const originChanged = Boolean(
-        existingProvider
-        && canonicalProviderOrigin(existingProvider.baseUrl)
-          !== canonicalProviderOrigin(provider.baseUrl),
-      )
-      if (originChanged) {
-        await deleteProviderKey(provider.id)
-        if (!input.provider.apiKey) {
-          throw new Error("Enter a new API key when changing the provider origin")
-        }
-      }
-      if (input.provider.apiKey) {
-        await saveProviderKey(
-          provider.id,
-          provider.baseUrl,
-          input.provider.apiKey,
-          provider.rememberKey,
-        )
-      } else {
-        const retained = await setProviderKeyPersistence(
-          provider.id,
-          provider.baseUrl,
-          provider.rememberKey,
-        )
-        if (provider.rememberKey && !retained) {
-          throw new Error("Re-enter the API key to remember it on this device")
-        }
-      }
-      await putStored("provider_configs", provider)
-      settings.externalProviderId = provider.id
-      await putStored("settings", settings)
-      if (originChanged && existingProvider) {
-        await removeHostPermissionIfUnused({
-          origin: canonicalProviderOrigin(existingProvider.baseUrl),
-          providers: await getAllStored<PersonalProviderConfig>("provider_configs"),
-          profiles: await getAllStored<MappingProfile>("transfer_mapping_profiles"),
-        }).catch(() => false)
-      }
-      return this.aiSettings()
-    }
-    await putStored("settings", settings)
-    return this.aiSettings()
-  }
-
-  async loadLocalModel(): Promise<PersonalAiSettingsView> {
-    const settings = await this.settings()
-    if (!settings.localModelId) throw new Error("Select a Local AI model")
-    const provider = this.localProvider(settings.localModelId)
-    await provider.load()
-    settings.localModelEnabled = true
-    await putStored("settings", settings)
-    return this.aiSettings()
-  }
-
-  async deleteLocalModel(): Promise<PersonalAiSettingsView> {
-    const settings = await this.settings()
-    if (settings.localModelId) {
-      const provider = this.localProvider(settings.localModelId)
-      await provider.delete()
-    }
-    settings.localModelEnabled = false
-    await putStored("settings", settings)
-    return this.aiSettings()
-  }
-
-  async testProvider(): Promise<void> {
-    const settings = await this.settings()
-    if (!settings.externalProviderId) throw new Error("Configure an AI provider first")
-    const config = await getStored<PersonalProviderConfig>(
-      "provider_configs",
-      settings.externalProviderId,
-    )
-    if (!config) throw new Error("AI provider configuration was not found")
-    await new OpenAiCompatibleProvider(config).completeJson<{ ok: boolean }>({
-      task: "exception_explain",
-      system: "Return JSON exactly as {\"ok\":true}.",
-      input: { test: true },
-      maxTokens: 20,
-    })
-  }
-
-  async removeProvider(): Promise<PersonalAiSettingsView> {
-    const settings = await this.settings()
-    let removedOrigin: string | null = null
-    if (settings.externalProviderId) {
-      const provider = await getStored<PersonalProviderConfig>(
-        "provider_configs",
-        settings.externalProviderId,
-      )
-      removedOrigin = provider ? canonicalProviderOrigin(provider.baseUrl) : null
-      await deleteProviderKey(settings.externalProviderId)
-      await deleteStored("provider_configs", settings.externalProviderId)
-    }
-    settings.externalProviderId = null
-    settings.aiMode = "local_only"
-    await putStored("settings", settings)
-    if (removedOrigin) await removeHostPermissionIfUnused({
-      origin: removedOrigin,
-      providers: await getAllStored<PersonalProviderConfig>("provider_configs"),
-      profiles: await getAllStored<MappingProfile>("transfer_mapping_profiles"),
-    }).catch(() => false)
-    return this.aiSettings()
-  }
 }

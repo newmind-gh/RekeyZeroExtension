@@ -34,11 +34,6 @@ describe("Personal IndexedDB schema", () => {
       "transfer_target_groups",
     ]) expect(database.objectStoreNames.contains(store)).toBe(false)
 
-    const revisions = database.transaction("revisions", "readonly").objectStore("revisions")
-    const evidence = database.transaction("evidence", "readonly").objectStore("evidence")
-    expect(revisions.indexNames.contains("record_id")).toBe(true)
-    expect(evidence.indexNames.contains("revision_id")).toBe(true)
-
     database.close()
     await requestResult(indexedDB.deleteDatabase(name))
   })
@@ -50,15 +45,24 @@ describe("Personal IndexedDB schema", () => {
       for (const store of PERSONAL_STORES) {
         legacyRequest.result.createObjectStore(store, { keyPath: "id" })
       }
-      for (const store of ["destinations", "mappings", "browser_tasks", "actions", "executions", "events"]) {
+      for (const store of ["records", "revisions", "evidence", "provider_configs", "destinations", "mappings", "browser_tasks", "actions", "executions", "events"]) {
         legacyRequest.result.createObjectStore(store, { keyPath: "id" })
       }
     }
     const legacy = await requestResult(legacyRequest)
+    const profile = { id: "preserved-profile", name: "Preserved fixture" }
+    const transaction = legacy.transaction(["transfer_mapping_profiles", "records", "settings"], "readwrite")
+    await Promise.all([
+      requestResult(transaction.objectStore("transfer_mapping_profiles").put(profile)),
+      requestResult(transaction.objectStore("records").put({ id: "retired-record", information: "PRIVATE_OLD_VALUE" })),
+      requestResult(transaction.objectStore("settings").put({ id: "personal", localModelEnabled: true, localModelId: "personal-qwen25-15b-v1" })),
+    ])
     legacy.close()
 
     const current = await openVersionedPersonalDatabase(name)
     expect([...current.objectStoreNames].sort()).toEqual([...PERSONAL_STORES].sort())
+    expect(await requestResult(current.transaction("transfer_mapping_profiles").objectStore("transfer_mapping_profiles").get(profile.id))).toEqual(profile)
+    expect(await requestResult(current.transaction("settings").objectStore("settings").get("personal"))).toMatchObject({ localModelEnabled: true })
     current.close()
     await requestResult(indexedDB.deleteDatabase(name))
   })

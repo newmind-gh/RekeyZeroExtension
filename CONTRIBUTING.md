@@ -1,12 +1,12 @@
 # Contributing
 
-RekeyZero is currently private, but changes should follow the standards expected of a future public project.
+RekeyZero welcomes focused contributions to its supervised browser-local page-to-page transfer extension.
 
 ## Principles
 
 - Keep core orchestration provider-agnostic.
 - Preserve the zero-rekey principle: known information should flow forward rather than be manually entered again.
-- Add provider behavior through connectors or mappings.
+- Keep the product flow: Observe → Map → Validate → Deterministic Fill → Verify → Human Submit.
 - Prefer structured schemas and deterministic validation at system boundaries.
 - Include tests for new behavior and regression fixes.
 - Never commit real customer/provider data, credentials, secrets, or proprietary portal content.
@@ -32,12 +32,9 @@ npm ci
 npm test
 npm run check
 
-cd ..\web
-npm ci
-npm run check
 ```
 
-Run `npm run test:e2e` from `apps\extension` when changing the Personal Side Panel, permissions, storage, or page-transfer behavior. The GitHub Actions workflow is manual-only and can be started with `workflow_dispatch` after local validation.
+Run `npm run test:e2e` from `apps\extension` when changing the Personal Side Panel, permissions, storage, or page-transfer behavior. PR CI runs unit tests and builds; main/manual runs add Chromium E2E and package scans. Version tags publish validated releases.
 
 The repository does not contain the former FastAPI service. `tests/extension-portal` is a synthetic page server for extension validation, not a production backend.
 
@@ -52,9 +49,9 @@ Use clear imperative commits. Conventional Commit prefixes are encouraged:
 - `test:` tests
 - `chore:` tooling/maintenance
 
-## Connector contributions
+## Control and mapping contributions
 
-A connector must declare capabilities, document required credentials/permissions, handle idempotency/retry semantics explicitly, and provide offline fixtures or mocks for CI.
+Control adapters and mappings must preserve guarded deterministic filling, read-back verification, existing-value protection, and manual submission. Use synthetic fixtures. Do not add backend services, generic automation, or runtime field values to AI matching inputs. Do not commit generated `dist/` files.
 
 ## Community standards
 

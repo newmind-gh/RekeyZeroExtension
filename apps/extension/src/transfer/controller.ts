@@ -1,6 +1,5 @@
 import { removeHostPermissionIfUnused } from "../personal/permissions/host-permissions"
-import { getAllStored } from "../personal/storage/indexed-db"
-import type { PersonalProviderConfig } from "../personal/storage/schema"
+import { configuredBuiltinApiOrigins } from "../personal/ai/direct-api-provider"
 import { hash, planTransfer, snapshot, successful } from "./planner"
 import { deleteProfile, loadSession, notifyProfilesChanged, pagePathPattern, profiles, putProfile, saveSession, SESSION_KEY } from "./store"
 import type { Command, MappingProfile, Observation, PageCommand, PageReply, ProfileFieldMapping, ProfilePageTemplate, ProfileTargetTemplate, Session, Snapshot, Target } from "./types"
@@ -334,11 +333,11 @@ export async function transferCommand(command: Command): Promise<unknown> {
       const remaining = await profiles()
       await notifyProfilesChanged()
       if (deleted) {
-        const providers = await getAllStored<PersonalProviderConfig>("provider_configs")
+        const providerOrigins = await configuredBuiltinApiOrigins()
         const origins = [...new Set([deleted.source.origin, ...deleted.targets.map((target) => target.origin)])]
         await Promise.all(origins.map((origin) => removeHostPermissionIfUnused({
           origin,
-          providers,
+          providerOrigins,
           profiles: remaining,
         }).catch(() => false)))
       }

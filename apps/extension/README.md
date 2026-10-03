@@ -1,6 +1,6 @@
 # RekeyZero Personal Browser Extension
 
-The Chromium Manifest V3 extension performs deterministic, browser-local-AI-assisted, and direct-provider-AI-assisted transfers and adds a browser-native ReKeyZero Admin page.
+The Chromium Manifest V3 extension performs deterministic, browser-local-AI-assisted, and direct-provider-AI-assisted transfers and adds a browser-native RekeyZero Admin page.
 
 The extension does not perform final submission, unattended navigation, or business-response capture.
 
@@ -23,7 +23,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The manually triggered GitHub Actions workflow runs the extension on Playwright bundled Chromium, type-checks and builds it, runs unit tests, and builds and scans release artifacts. Firefox and Safari are outside the current Chromium Manifest V3 product boundary.
+PR CI runs unit tests, TypeScript checks, and builds. Main/manual CI also runs Playwright Chromium E2E and release scans. Version tags matching the extension and package version trigger validated GitHub Releases. Main and release jobs scan/package first, then extract that ZIP for Chromium E2E (the synthetic fixture adds only its localhost host permission to a temporary test copy). Firefox and Safari are outside the current Chromium Manifest V3 product boundary.
 
 Release candidates are produced with:
 
@@ -31,7 +31,7 @@ Release candidates are produced with:
 npm run release
 ```
 
-Release output is written to the stable repository-level `dist/rekeyzero-personal` path, with matching `.zip` and `.manifest.json` files overwritten by each release. Builds are completed in temporary staging and copied into the stable directory before stale assets are removed, so required files such as `content-script.js` are never intentionally absent from the live unpacked path. The embedded release manifest records the source commit or deterministic snapshot hash and the repository's static executable and secret checks.
+Release output is written to the stable repository-level `dist/rekeyzero-personal` path, with matching `.zip`, `.manifest.json`, and `.sha256` files overwritten by each release. Builds are completed in temporary staging and copied into the stable directory before stale assets are removed, so required files such as `content-script.js` are never intentionally absent from the live unpacked path. The embedded release manifest records the source commit or deterministic snapshot hash and the repository's static executable and secret checks.
 
 ## Mapping Profile transfer model
 
@@ -88,9 +88,9 @@ The worker checkpoints the active batch in `chrome.storage.session`. It allows a
 
 Supported controls include native text/date/number inputs, textarea, single-select, checkbox, grouped radio controls, and the explicit listbox-combobox adapter contract. Unadapted custom widgets, nested frames, Shadow DOM, PDFs and canvas are not filled.
 
-## ReKeyZero Admin
+## RekeyZero Admin
 
-The extension-owned options page is **ReKeyZero Admin**. The gear icon in the Side Panel header opens it through `chrome.runtime.openOptionsPage()`.
+The extension-owned options page is **RekeyZero Admin**. The gear icon in the Side Panel header opens it through `chrome.runtime.openOptionsPage()`.
 
 Current Admin sections are:
 
@@ -138,21 +138,21 @@ When the last Mapping Profile using an origin is deleted, the permission can be 
 
 ## Personal persistence
 
-Personal IndexedDB v7 contains only current durable product state:
+Personal IndexedDB v8 contains only current durable product state:
+
+```text
+settings
+transfer_mapping_profiles
+llm_logs
+```
+
+The following dormant Information Record, generic-provider, and old single-page stores are retired and removed on upgrade:
 
 ```text
 records
 revisions
 evidence
 provider_configs
-settings
-transfer_mapping_profiles
-llm_logs
-```
-
-The following old Personal single-page stores are retired and removed from the current schema:
-
-```text
 destinations
 mappings
 browser_tasks
@@ -163,9 +163,9 @@ transfer_mappings
 transfer_target_groups
 ```
 
-No legacy destination/task/action/execution data is converted into Mapping Profiles. Mapping Profiles remain the only durable transfer mapping model.
+Upgrade removes these retired stores and their data; existing Mapping Profiles, local-model selection, and logs are preserved. The dormant record import/review APIs and generic BYO-provider path are removed. Mapping Profiles remain the only durable transfer mapping model.
 
-Normal Workspace export contains the current durable stores, including `transfer_mapping_profiles`, and excludes provider API keys. Diagnostics exclude Information values, Mapping Profile content, API keys, page text, and provider response bodies.
+Normal Workspace export contains the current durable stores, including `transfer_mapping_profiles`, and excludes provider API keys. Diagnostics exclude source field values, Mapping Profile content, API keys, page text, and provider response bodies.
 
 ## Current architecture constraints
 

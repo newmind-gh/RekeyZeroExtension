@@ -21,6 +21,5 @@
     "jsx": "react-jsx",
     "types": ["chrome"]
   },
-  "include": ["src"],
-  "exclude": ["src/personal/ui/PersonalHome.tsx"]
+  "include": ["src"]
 }

@@ -2,8 +2,7 @@ import {
   deleteProviderKey,
   getProviderKey,
   saveProviderKey,
-  setProviderKeyPersistence,
-} from "./byo/secret-store"
+} from "./secret-store"
 
 // Direct provider credentials stay in protected extension storage and never enter repository files.
 import { extractJson } from "./model-provider"
@@ -85,7 +84,7 @@ export async function builtinApiModelConfig(modelId: string): Promise<BuiltinApi
   const configs = await storedConfigs()
   const stored = configs[modelId]
   if (stored?.rememberKey) {
-    await setProviderKeyPersistence(definition.id, definition.origin, false)
+    await getProviderKey(definition.id, definition.origin)
     stored.rememberKey = false
     await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: configs })
   }
@@ -108,13 +107,13 @@ export async function configureBuiltinApiModel(input: {
   if (!model) throw new Error("Enter the provider model name")
   const apiKey = input.apiKey?.trim()
   if (apiKey) {
-    await saveProviderKey(definition.id, definition.origin, apiKey, input.rememberKey)
+    await saveProviderKey(definition.id, definition.origin, apiKey)
   } else {
-    const retained = await setProviderKeyPersistence(definition.id, definition.origin, input.rememberKey)
+    const retained = await getProviderKey(definition.id, definition.origin)
     if (!retained) throw new Error(`Enter the ${definition.displayName} API key`)
   }
   const configs = await storedConfigs()
-  configs[definition.id] = { model, rememberKey: input.rememberKey }
+  configs[definition.id] = { model, rememberKey: false }
   await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: configs })
 }
 
@@ -284,4 +283,9 @@ export class DirectApiProvider implements PersonalModelProvider {
       rawResponses,
     }
   }
+}
+
+export async function configuredBuiltinApiOrigins(): Promise<string[]> {
+  const configs = await storedConfigs()
+  return BUILTIN_API_MODELS.filter((model) => configs[model.id]).map((model) => model.origin)
 }

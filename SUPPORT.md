@@ -20,6 +20,6 @@ Community support covers:
 - the bundled synthetic extension test pages; and
 - reproducible build and packaging problems.
 
-The supporting `apps/web` source requires an external compatible API. Third-party portals, provider accounts, billing, browser policies, and unsupported browser versions require support from their respective operators.
+Third-party portals, provider accounts, billing, browser policies, and unsupported browser versions require support from their respective operators.
 
 Support is provided on a best-effort basis and does not create a service-level agreement.

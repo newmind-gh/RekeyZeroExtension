@@ -2,7 +2,7 @@ import { PERSONAL_STORES } from "./schema"
 import type { PersonalStoreName } from "./schema"
 
 export const PERSONAL_DATABASE_NAME = "rekeyzero-personal"
-export const PERSONAL_DATABASE_VERSION = 7
+export const PERSONAL_DATABASE_VERSION = 8
 
 const CURRENT_LOCAL_MODEL_IDS = new Set([
   "personal-qwen25-15b-v1",
@@ -11,6 +11,10 @@ const CURRENT_LOCAL_MODEL_IDS = new Set([
 const DEFAULT_LOCAL_MODEL_ID = "personal-qwen25-15b-v1"
 
 const RETIRED_PERSONAL_STORES = [
+  "records",
+  "revisions",
+  "evidence",
+  "provider_configs",
   "destinations",
   "mappings",
   "browser_tasks",
@@ -31,16 +35,6 @@ export function upgradePersonalDatabase(
       if (!database.objectStoreNames.contains(store)) {
         database.createObjectStore(store, { keyPath: "id" })
       }
-    }
-  }
-  if (oldVersion < 2) {
-    const indexes: Array<[PersonalStoreName, string, string]> = [
-      ["revisions", "record_id", "record_id"],
-      ["evidence", "revision_id", "revision_id"],
-    ]
-    for (const [storeName, indexName, keyPath] of indexes) {
-      const store = transaction.objectStore(storeName)
-      if (!store.indexNames.contains(indexName)) store.createIndex(indexName, keyPath)
     }
   }
   if (!database.objectStoreNames.contains("transfer_mapping_profiles")) {
@@ -96,8 +90,12 @@ function normalizeCurrentValue<T>(storeName: PersonalStoreName, value: T): T {
   const candidate = value as Record<string, unknown>
   if (storeName === "settings" && candidate.id === "personal") {
     const localModelId = typeof candidate.localModelId === "string" ? candidate.localModelId : null
-    if (localModelId && CURRENT_LOCAL_MODEL_IDS.has(localModelId)) return value
-    return { ...candidate, localModelId: DEFAULT_LOCAL_MODEL_ID } as T
+    return {
+      id: "personal",
+      localModelId: localModelId && CURRENT_LOCAL_MODEL_IDS.has(localModelId) ? localModelId : DEFAULT_LOCAL_MODEL_ID,
+      localModelEnabled: Boolean(candidate.localModelEnabled),
+      apiModelId: candidate.apiModelId ?? null,
+    } as T
   }
   if (storeName === "llm_logs" && !("raw_request" in candidate)) {
     return { ...candidate, raw_request: candidate.ai_request ?? null } as T
@@ -175,7 +173,7 @@ export async function exportPersonalDatabaseRecovery(): Promise<Record<string, u
     const request = indexedDB.open(PERSONAL_DATABASE_NAME)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error ?? new Error("Recovery storage is unavailable"))
-    request.onblocked = () => reject(new Error("Close other ReKeyZero Admin pages and try again"))
+    request.onblocked = () => reject(new Error("Close other RekeyZero Admin pages and try again"))
   })
   try {
     const available = PERSONAL_STORES.filter((store) => database.objectStoreNames.contains(store))

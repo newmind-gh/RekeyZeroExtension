@@ -3,18 +3,11 @@ import { describe, expect, it } from "vitest"
 import { assertRequestedRoute, routeTask } from "./capability-gate"
 
 const base = {
-  task: "field_match" as const,
   destinationFieldCount: 30,
   unresolvedFieldCount: 12,
   contextChars: 12_000,
-  sourceItemCount: 3,
-  attachmentCount: 0,
-  attachmentTypes: [],
-  requiresVision: false,
-  requiresLongContext: false,
   webgpuAvailable: true,
   localModelReady: true,
-  externalProviderEnabled: false,
 }
 
 describe("Personal capability gate", () => {
@@ -27,20 +20,9 @@ describe("Personal capability gate", () => {
     expect(routeTask({ ...base, unresolvedFieldCount: 13 }).route).toBe("human_required")
   })
 
-  it("requires explicit external consent when a provider is available", () => {
-    expect(routeTask({
-      ...base,
-      destinationFieldCount: 31,
-      externalProviderEnabled: true,
-    })).toEqual({
-      route: "external_api",
-      reason: "local_capability_exceeded",
-      requiresConsent: true,
-    })
-  })
 
-  it("never sends vision input to Local Lite", () => {
-    expect(routeTask({ ...base, requiresVision: true }).route).toBe("unsupported")
+  it("uses deterministic matching when every field is resolved", () => {
+    expect(routeTask({ ...base, unresolvedFieldCount: 0 }).route).toBe("deterministic")
   })
 
   it.each([

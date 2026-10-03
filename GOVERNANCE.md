@@ -15,14 +15,14 @@ Material architecture decisions must be explained in the relevant pull request o
 - Issues are triaged by impact, reproducibility, scope, and security risk.
 - Pull requests require passing applicable checks and maintainer approval.
 - Security reports follow [SECURITY.md](SECURITY.md), not the public issue tracker.
-- Connector changes require synthetic fixtures, explicit permissions, and documented failure behavior.
+- Control-adapter changes require synthetic fixtures, explicit permissions, and documented failure behavior.
 - Inactive proposals may be closed and reopened when new evidence or an implementer is available.
 
 ## Releases
 
 Releases use semantic versioning where practical. The maintainer authorizes releases from a reviewed commit after tests, dependency checks, secret scans, and package verification pass. Breaking changes require release notes and a migration path when one is feasible.
 
-GitHub Actions workflows are manually triggered. A successful workflow is evidence for a release decision, not automatic authorization to publish.
+PR and main CI validate changes automatically. The maintainer authorizes publication by pushing a version tag for a reviewed commit; the Release workflow validates and publishes that tagged version.
 
 ## Security and conflicts of interest
 

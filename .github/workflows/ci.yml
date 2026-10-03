@@ -1,27 +1,19 @@
 name: CI
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-jobs:
-  web:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Install web
-        working-directory: apps/web
-        run: npm ci
-      - name: Check web
-        working-directory: apps/web
-        run: npm run check
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
   extension:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -42,16 +34,27 @@ jobs:
         working-directory: apps/extension
         run: npm run check
       - name: Install browser runtime
+        if: github.event_name != 'pull_request'
         working-directory: apps/extension
         run: npx playwright install --with-deps chromium
-      - name: Run extension browser validation
-        working-directory: apps/extension
-        run: xvfb-run --auto-servernum npm run test:e2e
       - name: Build and scan release artifacts
+        if: github.event_name != 'pull_request'
         working-directory: apps/extension
         run: npm run release
+      - name: Validate packaged extension in Chromium
+        if: github.event_name != 'pull_request'
+        working-directory: apps/extension
+        env:
+          REKEYZERO_EXTENSION_OUTPUT_DIRECTORY: ${{ runner.temp }}/rekeyzero-release
+        run: |
+          unzip -q ../../dist/rekeyzero-personal.zip -d "$REKEYZERO_EXTENSION_OUTPUT_DIRECTORY"
+          xvfb-run --auto-servernum npx playwright test tests/personal-orchestration.e2e.ts
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: extension-release-candidates
-          path: dist/
+          path: |
+            dist/rekeyzero-personal.zip
+            dist/rekeyzero-personal.manifest.json
+            dist/rekeyzero-personal.sha256
           if-no-files-found: error

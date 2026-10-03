@@ -40,10 +40,10 @@ The maintainer may request additional information, reject reports that cannot be
 Security-sensitive areas include:
 
 - provider credentials and extension storage;
-- outbound Gemini, DeepSeek, and connector requests;
+- outbound Gemini, DeepSeek, and OpenAI matching requests;
 - browser permissions, page observation, and constrained form filling;
 - prompt-injection and untrusted DOM boundaries;
-- imported files and structured data;
+- Mapping Profiles and structured data;
 - audit logs, diagnostics, and exports;
 - dependency and release-package integrity.
 

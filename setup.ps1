@@ -3,10 +3,9 @@ param([switch]$ForceNpmInstall)
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ExtensionRoot = Join-Path $RepoRoot "apps\extension"
-$WebRoot = Join-Path $RepoRoot "apps\web"
 
-if (-not (Test-Path $ExtensionRoot) -or -not (Test-Path $WebRoot)) {
-    throw "setup.ps1 must be located in the RekeyZeroExtention repository root."
+if (-not (Test-Path $ExtensionRoot)) {
+    throw "setup.ps1 must be located in the RekeyZeroExtension repository root."
 }
 
 if ($null -eq (Get-Command "node" -ErrorAction SilentlyContinue)) {
@@ -17,10 +16,9 @@ if ($null -eq (Get-Command "npm" -ErrorAction SilentlyContinue)) {
 }
 
 Write-Host ""
-Write-Host "RekeyZeroExtention - Windows Setup" -ForegroundColor Cyan
+Write-Host "RekeyZeroExtension - Windows Setup" -ForegroundColor Cyan
 Write-Host "Repo:           $RepoRoot"
 Write-Host "Extension deps: $ExtensionRoot\node_modules"
-Write-Host "Web deps:       $WebRoot\node_modules"
 Write-Host ""
 Write-Host ("[ok] Global Node.js: " + (& node --version)) -ForegroundColor Green
 Write-Host ("[ok] Global npm: " + (& npm --version)) -ForegroundColor Green
@@ -42,7 +40,6 @@ function Install-Dependencies([string]$Path, [string]$Label) {
 }
 
 Install-Dependencies $ExtensionRoot "Extension"
-Install-Dependencies $WebRoot "Web"
 
 Push-Location $ExtensionRoot
 try {
@@ -54,14 +51,7 @@ try {
     Pop-Location
 }
 
-Push-Location $WebRoot
-try {
-    npm run check
-    if ($LASTEXITCODE -ne 0) { throw "Web check failed." }
-} finally {
-    Pop-Location
-}
 
 Write-Host ""
-Write-Host "RekeyZeroExtention setup completed." -ForegroundColor Green
+Write-Host "RekeyZeroExtension setup completed." -ForegroundColor Green
 Write-Host ""

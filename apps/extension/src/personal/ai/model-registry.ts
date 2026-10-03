@@ -29,7 +29,7 @@ const ALL_LOCAL_MODELS: LocalModelDefinition[] = [
     estimatedPeakMemoryMb: 1_895,
     maxContextTokens: 4096,
     runtimeContextTokens: 2048,
-    supportedTasks: ["field_match", "short_extract", "exception_explain"],
+    supportedTasks: ["field_match"],
   },
   {
     id: "personal-qwen25-15b-v1",
@@ -41,7 +41,7 @@ const ALL_LOCAL_MODELS: LocalModelDefinition[] = [
     estimatedDownloadBytes: 880_000_000,
     estimatedPeakMemoryMb: 1_630,
     maxContextTokens: 4096,
-    supportedTasks: ["field_match", "short_extract", "exception_explain"],
+    supportedTasks: ["field_match"],
   },
 ]
 

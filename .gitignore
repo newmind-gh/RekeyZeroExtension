@@ -42,11 +42,3 @@ output/playwright/
 
 # TypeScript build metadata
 *.tsbuildinfo
-
-# RekeyZero Personal release artifacts are built locally and published from this repository.
-!/dist/
-/dist/*
-!/dist/rekeyzero-personal/
-!/dist/rekeyzero-personal/**
-!/dist/rekeyzero-personal.manifest.json
-!/dist/rekeyzero-personal.zip

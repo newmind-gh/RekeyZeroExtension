@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/extension/package-lock.json
+      - name: Verify release tag matches package and extension
+        working-directory: apps/extension
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const pkg = JSON.parse(fs.readFileSync("package.json")); const manifest = JSON.parse(fs.readFileSync("manifest.personal.json")); if (process.env.RELEASE_TAG !== `v${pkg.version}` || pkg.version !== manifest.version) throw new Error("Release tag/version mismatch");'
+      - run: npm ci
+        working-directory: apps/extension
+      - run: npm test
+        working-directory: apps/extension
+      - run: npm run check
+        working-directory: apps/extension
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/extension
+      - run: npm run release
+        working-directory: apps/extension
+      - name: Validate packaged extension in Chromium
+        working-directory: apps/extension
+        env:
+          REKEYZERO_EXTENSION_OUTPUT_DIRECTORY: ${{ runner.temp }}/rekeyzero-release
+        run: |
+          unzip -q ../../dist/rekeyzero-personal.zip -d "$REKEYZERO_EXTENSION_OUTPUT_DIRECTORY"
+          xvfb-run --auto-servernum npx playwright test tests/personal-orchestration.e2e.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validated-release
+          path: |
+            dist/rekeyzero-personal.zip
+            dist/rekeyzero-personal.manifest.json
+            dist/rekeyzero-personal.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: validated-release
+          path: release
+      - name: Publish validated GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" release/* --verify-tag --title "RekeyZero $RELEASE_TAG" --generate-notes

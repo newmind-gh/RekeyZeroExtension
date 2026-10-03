@@ -552,9 +552,9 @@ export function TransferPanel() {
       <button
         type="button"
         className="workspace-settings"
-        aria-label="Open ReKeyZero Admin"
-        title="Open ReKeyZero Admin"
-        onClick={() => void chrome.runtime.openOptionsPage().catch((caught) => setProfileError(caught instanceof Error ? caught.message : "Unable to open ReKeyZero Admin"))}
+        aria-label="Open RekeyZero Admin"
+        title="Open RekeyZero Admin"
+        onClick={() => void chrome.runtime.openOptionsPage().catch((caught) => setProfileError(caught instanceof Error ? caught.message : "Unable to open RekeyZero Admin"))}
       ><Settings aria-hidden="true" size={18} /></button>
     </header>
     <section className="card"><h2>ZeroKey Profile</h2>

@@ -1,4 +1,3 @@
-import type { PersonalProviderConfig } from "../storage/schema"
 import type { MappingProfile } from "../../transfer/types"
 
 export function hostPermissionPattern(originOrUrl: string): string {
@@ -7,12 +6,12 @@ export function hostPermissionPattern(originOrUrl: string): string {
 
 export async function removeHostPermissionIfUnused(input: {
   origin: string
-  providers: PersonalProviderConfig[]
+  providerOrigins: string[]
   profiles: MappingProfile[]
 }): Promise<boolean> {
   const origin = new URL(input.origin).origin
-  const stillUsed = input.providers.some(
-    (provider) => provider.enabled && new URL(provider.baseUrl).origin === origin,
+  const stillUsed = input.providerOrigins.some(
+    (providerOrigin) => new URL(providerOrigin).origin === origin,
   ) || input.profiles.some(
     (profile) => profile.source.origin === origin || profile.targets.some((target) => target.origin === origin),
   )

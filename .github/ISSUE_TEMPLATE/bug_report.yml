@@ -20,4 +20,4 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Version, OS/runtime, connector type, and other relevant details.
+      description: Version, OS/runtime, affected controls, and other relevant details.

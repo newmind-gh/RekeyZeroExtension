@@ -86,7 +86,7 @@ describe("LocalModelProvider", () => {
     webLlm.createEngine.mockResolvedValue(engine)
 
     const result = await new LocalModelProvider("personal-qwen25-15b-v1").completeJson<{ ok: boolean }>({
-      task: "exception_explain",
+      task: "field_match",
       system: "Return JSON.",
       input: {},
       schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
@@ -388,7 +388,7 @@ describe("LocalModelProvider", () => {
     webLlm.createEngine.mockResolvedValue(engine)
 
     const result = await new LocalModelProvider("personal-qwen25-15b-v1").completeJson<{ ok: boolean }>({
-      task: "exception_explain",
+      task: "field_match",
       system: "Return JSON.",
       input: {},
     })
@@ -420,7 +420,7 @@ describe("LocalModelProvider", () => {
     }
     webLlm.createEngine.mockResolvedValueOnce(failedEngine).mockResolvedValueOnce(recoveredEngine)
     const provider = new LocalModelProvider("personal-qwen25-15b-v1")
-    const request = { task: "exception_explain" as const, system: "Return JSON.", input: {} }
+    const request = { task: "field_match" as const, system: "Return JSON.", input: {} }
 
     await expect(provider.completeJson(request)).rejects.toThrow(
       `Local AI GPU session was lost. The model will be reloaded on the next attempt. Original error: ${message}`,

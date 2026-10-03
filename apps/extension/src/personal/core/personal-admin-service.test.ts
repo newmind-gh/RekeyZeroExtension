@@ -12,6 +12,7 @@ describe("Personal administration", () => {
     Object.defineProperty(globalThis, "chrome", {
       configurable: true,
       value: {
+        storage: { local: { get: async () => ({}) } },
         runtime: { getManifest: () => ({ name: "RekeyZero Personal", version: "0.1.0" }) },
       },
     })
@@ -23,7 +24,7 @@ describe("Personal administration", () => {
         profile: "personal",
       })
       expect(JSON.stringify(diagnostics)).not.toContain("apiKey")
-      expect(diagnostics.exclusions).toContain("Information Record values")
+      expect(diagnostics.exclusions).toContain("source field values")
       expect(diagnostics.exclusions).toContain("Mapping Profile content")
     } finally {
       Object.defineProperty(globalThis, "chrome", { configurable: true, value: previousChrome })
@@ -44,6 +45,7 @@ describe("Personal administration", () => {
     try {
       const exported = JSON.parse(await new PersonalAdminService().exportData())
       expect(exported.transfer_mapping_profiles).toContainEqual(profile)
+      for (const store of ["records", "revisions", "evidence", "provider_configs"]) expect(exported).not.toHaveProperty(store)
       expect(exported).not.toHaveProperty("destinations")
       expect(exported).not.toHaveProperty("mappings")
       expect(exported).not.toHaveProperty("browser_tasks")
@@ -88,7 +90,7 @@ describe("Personal administration", () => {
     const publish = vi.fn(async () => undefined)
     const removePermission = vi.fn(async () => true)
     Object.defineProperty(globalThis, "chrome", { configurable: true, value: {
-      storage: { local: { set: publish } },
+      storage: { local: { set: publish, get: async () => ({}) } },
       permissions: { remove: removePermission },
     } })
     const profile = {

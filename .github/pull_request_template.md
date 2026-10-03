@@ -15,4 +15,4 @@ Explain the problem or decision this addresses.
 
 ## Risk / rollout
 
-Describe external actions, connector effects, migrations, compatibility issues, or rollback considerations.
+Describe page-fill effects, migrations, compatibility issues, or rollback considerations.
