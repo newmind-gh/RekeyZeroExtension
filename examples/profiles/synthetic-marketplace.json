@@ -1,0 +1,145 @@
+{
+  "format": "rekeyzero-mapping-profile",
+  "schemaVersion": 1,
+  "minimumExtensionVersion": "0.2.0",
+  "profile": {
+    "name": "Synthetic Marketplace",
+    "kind": "profile",
+    "version": 2,
+    "revision": 1,
+    "source": {
+      "origin": "http://127.0.0.1:4178",
+      "pathPattern": "/:segment/:segment",
+      "template": "9e13eee3f100ea0865d7cdba10eec288c0d2a705dbc56382b5cebca41d301b3b",
+      "title": "System Alpha CRM",
+      "fields": [
+        {
+          "templateKey": "23b4aaaf115e40eca3b30c6684bf03b0205334b51e43d6532397b47b53914ca9",
+          "identityKey": "b21e1d36c7c90c0ec0fbb8ddda7fd700476abfe55ee8e983c1a1f1cc2bd0d733",
+          "type": "text",
+          "label": "Legal company name"
+        },
+        {
+          "templateKey": "6e106c55e14aeb99160cef70abe5e7b82223690f1bf78fe1a0a4e91e87fc7fad",
+          "identityKey": "84d751841b503fa2051411423332b919f6a4192473b7810fb99d671875311bfd",
+          "type": "email",
+          "label": "Contact email"
+        },
+        {
+          "templateKey": "3f7d20e94449c2abbcbdda978459a9cb6b32401c57666f7c37388b3f30da7e0e",
+          "identityKey": "bd0c0ddf4cd8cbb2a4702d7b80d2e4b2676a34474acfe139eec61a3b242807dd",
+          "type": "number",
+          "label": "Annual turnover"
+        },
+        {
+          "templateKey": "bb44c2dda1e1d91f41953159334de07e01cb89d2a540942fd412822bf217c6b3",
+          "identityKey": "8451570ea9b86b340406b867b8a8b76c279aa00ea7256ae2165ac37fb5190aff",
+          "type": "text",
+          "label": "State"
+        },
+        {
+          "templateKey": "78043e53df58aaaba9b20ba160a6b2e8f84ea587e84ae8d80c809bd8e67e3379",
+          "identityKey": "cb302543971d912d55fb14571342ff65718bff6d6b2d6a075dd72abcad38f1ca",
+          "type": "date",
+          "label": "Account start date"
+        },
+        {
+          "templateKey": "0e0d80756aa380a9d3947dbda7df42c89bd9e443c6532745757b46d54e0b71af",
+          "identityKey": "d2410fa3bdcb41c1576d3ce8da9f716ed51ecac590730d911e1d88c5defe4a35",
+          "type": "text",
+          "label": "Industry"
+        },
+        {
+          "templateKey": "ca350760dd506145f51068a5fcd889072eea9e0f426b0e64a561946ad0f73476",
+          "identityKey": "0d99697ee619a084bc1aa5662e20ebfe4b4a96865a6f8108cf705dcdab729f42",
+          "type": "text",
+          "label": "Business category"
+        },
+        {
+          "templateKey": "119ede6d7c878cd7237576a81e9a535ae5dbaf53d09f001e694494ffac98d507",
+          "identityKey": "4c0e828d60b06fd4ad60a9275a13c350516166fcbef7e4475388476e1f9a6b87",
+          "type": "textarea",
+          "label": "Business description"
+        }
+      ]
+    },
+    "targets": [
+      {
+        "origin": "http://127.0.0.1:4178",
+        "pathPattern": "/:segment/:segment",
+        "template": "f96e332fe0c07666320f76e0a93b1b91e92a59e0c1a0f6d918a3a6429d06299c",
+        "title": "System Beta Marketplace Portal",
+        "fields": [
+          {
+            "templateKey": "4c8ed27b10fdbd0993ae71e0bbfd7b9b4be2ec318ba3afc51d054603b9853c1a",
+            "identityKey": "b1c71afe678e9c9d64ec726e867bf42830b7db339c59b45500f608d54f735f35",
+            "type": "text",
+            "label": "Registered business"
+          },
+          {
+            "templateKey": "3ba2f82d640fe9d2f847deb35c9135268506e2cf772f2a9a0716b8f85a3d2ce5",
+            "identityKey": "d3a15a23ec36fcf04c372354d92fd50a142cd08b794761b1bba89cffef30d4af",
+            "type": "email",
+            "label": "Operations email"
+          },
+          {
+            "templateKey": "f098815ad2295a5e6694b68142af2f9e05ee379a9a8ebfcf3681359f8ce8f6af",
+            "identityKey": "8258bfbb70caab2a08b449532c53a58ecbb9b863b2f9e7f105e6f8867095174f",
+            "type": "number",
+            "label": "Estimated annual sales"
+          },
+          {
+            "templateKey": "315ce9d5a83fae82e1defcbd37149b79fb4865886cb29f5eed35f731d985f196",
+            "identityKey": "8eeb479a5ad7c98c490d22b45a8d3ae30fd5c076c26075213a54314ee4e64ffb",
+            "type": "select",
+            "label": "Registered region"
+          },
+          {
+            "templateKey": "7964cd7609e5e8a8bb6e0bac4bb10f65bcf420af6355f95b9cf74ea4cdad5d1e",
+            "identityKey": "5ca152ff9b0e068bf727bc5ca702620f8b8813d9be3c7fc3f4e92851e2ebc9d2",
+            "type": "date",
+            "label": "Store launch date"
+          },
+          {
+            "templateKey": "b9af20e355b4af17b5668b64461f35d13114df8ab3b9918ef9dcc1c20b9c0356",
+            "identityKey": "37a761a02abcfb84fd57165bf3390a843366b4f6005b7a53590beaa554bced23",
+            "type": "textarea",
+            "label": "Business summary"
+          }
+        ],
+        "mappings": [
+          {
+            "sourceTemplateKey": "23b4aaaf115e40eca3b30c6684bf03b0205334b51e43d6532397b47b53914ca9",
+            "targetTemplateKey": "4c8ed27b10fdbd0993ae71e0bbfd7b9b4be2ec318ba3afc51d054603b9853c1a",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "6e106c55e14aeb99160cef70abe5e7b82223690f1bf78fe1a0a4e91e87fc7fad",
+            "targetTemplateKey": "3ba2f82d640fe9d2f847deb35c9135268506e2cf772f2a9a0716b8f85a3d2ce5",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "3f7d20e94449c2abbcbdda978459a9cb6b32401c57666f7c37388b3f30da7e0e",
+            "targetTemplateKey": "f098815ad2295a5e6694b68142af2f9e05ee379a9a8ebfcf3681359f8ce8f6af",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "bb44c2dda1e1d91f41953159334de07e01cb89d2a540942fd412822bf217c6b3",
+            "targetTemplateKey": "315ce9d5a83fae82e1defcbd37149b79fb4865886cb29f5eed35f731d985f196",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "78043e53df58aaaba9b20ba160a6b2e8f84ea587e84ae8d80c809bd8e67e3379",
+            "targetTemplateKey": "7964cd7609e5e8a8bb6e0bac4bb10f65bcf420af6355f95b9cf74ea4cdad5d1e",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "119ede6d7c878cd7237576a81e9a535ae5dbaf53d09f001e694494ffac98d507",
+            "targetTemplateKey": "b9af20e355b4af17b5668b64461f35d13114df8ab3b9918ef9dcc1c20b9c0356",
+            "existingValuePolicy": "blank_only"
+          }
+        ]
+      }
+    ]
+  }
+}

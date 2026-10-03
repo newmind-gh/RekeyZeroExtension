@@ -1,0 +1,56 @@
+name: Synthetic demo
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tests/extension-portal/**"
+      - "apps/extension/**"
+      - ".github/workflows/demo.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/extension/package-lock.json
+      - run: npm ci
+        working-directory: apps/extension
+      - run: npm run check
+        working-directory: apps/extension
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/extension
+      - name: Build static demo
+        env:
+          REKEYZERO_DEMO_BASE_PATH: /${{ github.event.repository.name }}
+        run: node tests/extension-portal/build-demo.mjs
+      - name: Record real extension walkthrough
+        run: xvfb-run --auto-servernum node tests/extension-portal/record-demo.mjs
+      - name: Validate adapters and static demo
+        working-directory: apps/extension
+        run: npx playwright test tests/control-adapters.e2e.ts tests/demo.e2e.ts
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/demo
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment

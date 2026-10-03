@@ -135,6 +135,8 @@ async function aiSettingsView(base?: PersonalAiSettingsView): Promise<PersonalAi
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined)
 
 async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> {
+  if (request.type === "PERSONAL_EXPORT_PROFILE") return admin().exportProfile(request.profileId)
+  if (request.type === "PERSONAL_IMPORT_PROFILE") return admin().importProfile(request.content)
   if (request.type === "PERSONAL_GET_HOME") return admin().home()
   if (request.type === "PERSONAL_SAVE_PROFILE") {
     const result = await admin().saveProfile(request.profile)

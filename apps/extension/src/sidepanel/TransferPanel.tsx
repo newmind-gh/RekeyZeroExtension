@@ -232,7 +232,7 @@ export function TransferPanel() {
       sourceTabIdRef.current = prepared.sourceTabId
       setSourceTabId(prepared.sourceTabId)
       setSelected(prepared.targets.map((target) => target.tabId))
-      setSession(await command<Session>({ type: "RUN_TRANSFER" }))
+      if (!prepared.profileDrift) setSession(await command<Session>({ type: "RUN_TRANSFER" }))
     } catch (caught) { setSectionError(caught instanceof Error ? caught.message : "Unable to prepare and fill with the Mapping Profile") }
     finally { setBusy(false) }
   }
@@ -644,6 +644,7 @@ export function TransferPanel() {
         <p>{session.source.fields.length} fields · {frozen ? "Frozen for this batch" : "Preview; current values checked at start"}</p>
         {session.sourceChanged && <p>{frozen ? "Source changed after start. This batch continues using its frozen values." : "Source values changed. They will be rechecked when you start."}</p>}
         {session.source.truncated && <p role="alert">Partial scan: {session.source.eligibleCount} eligible fields, first 120 read. This is not the whole page.</p>}
+        {!session.frozen && !session.mappingProfileId && session.source.availableGroups.length > 0 && <label>Source section<select aria-label="Source section" value={session.source.group} disabled={disabled} onChange={(event) => void run({ type: "SET_SOURCE", tabId: session.sourceTabId!, group: event.target.value })}><option value="">All sections (up to 120 controls)</option>{session.source.availableGroups.map((group) => <option key={group} value={group}>{group}</option>)}</select></label>}
         <details><summary>View source data</summary>{session.source.fields.map((f) => <p key={f.id}>{f.group} / {f.label}: {f.display}</p>)}</details>
       </> : <p>The current browser tab is selected by default. Website access is requested when you select a source or prepare the tabs.</p>}
     </section>
@@ -665,6 +666,7 @@ export function TransferPanel() {
         <label>Profile name<input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Commerce account transfer" /></label>
         <p>For each target field, choose the source field by its business label. Source values are not displayed or stored in the Profile.</p>
         {session.targets.map((target) => <article key={target.id} className="profile-target"><h3>{target.title}</h3>
+          {!session.mappingProfileId && !session.frozen && (target.observation?.groups?.length ?? 0) > 1 && <label>Target section<select aria-label={`Target section ${target.title}`} disabled={disabled} value={target.observation?.selectedGroups?.[0] ?? ""} onChange={(event) => void run({ type: "SET_TARGET_GROUPS", targetId: target.id, groups: event.target.value ? [event.target.value] : [] })}><option value="">All sections (up to 120 controls)</option>{target.observation?.groups?.map((group) => <option key={group.name} value={group.name}>{group.name || "Ungrouped"} ({group.count})</option>)}</select></label>}
         {target.plan?.actions.map((action) => {
           const configured = profileDraft[target.id]?.[action.field.instanceKey] ?? { existingValuePolicy: "blank_only" as const }
           const invalid = profileValidationAttempted && configured.existingValuePolicy !== "skip" && !session.source!.fields.some((field) => field.instanceKey === configured.sourceInstanceKey)
@@ -694,10 +696,29 @@ export function TransferPanel() {
       </>}
       <button disabled={disabled} onClick={cancelCreateProfile}>{selectedProfileId ? "Close" : "Cancel"}</button>
     </section>}
+    {session?.profileDrift && <section className="card profile-drift" aria-label="Profile Drift Report">
+      <h2>Profile changed</h2>
+      <p>Review the detected changes. Only compatible saved mappings can be filled; new and changed fields stay blocked.</p>
+      {session.profileDrift.reports.map((report, index) => <article key={index}>
+        <h3>{report.page === "source" ? "Source" : "Target"}: {report.title}</h3>
+        <p>{report.unchangedMappedFields.length}/{report.unchangedMappedFields.length + report.blockedKeys.length} mapped fields remain compatible · {report.newFields.length} new unmapped fields detected</p>
+        {([
+          ["Unchanged mapped fields", report.unchangedMappedFields],
+          ["Missing mapped fields", report.missingMappedFields],
+          ["New fields", report.newFields],
+          ["Changed control types", report.changedControlTypes],
+          ["Ambiguous fields", report.ambiguousFields],
+        ] as const).map(([label, fields]) => <details key={label} open={fields.length > 0 && label !== "Unchanged mapped fields"}>
+          <summary>{label}: {fields.length}</summary><ul>{fields.map((field, fieldIndex) => <li key={fieldIndex}>{field}</li>)}</ul>
+        </details>)}
+      </article>)}
+      {!session.profileDrift.reviewed ? <button disabled={disabled || !readyCount} onClick={() => void run({ type: "APPROVE_PROFILE_DRIFT" })}>Approve compatible fields</button>
+        : <p role="status">Drift reviewed for this batch. Use Fill below, or Open Profile and Save Profile to retain the reviewed page structure as a new revision.</p>}
+    </section>}
     {profilePrepared && <>
     <section className="card"><h2>This batch · {session?.status.replaceAll("_", " ") ?? "draft"}</h2>
       <p>{preparedTargets.length} of {session?.targets.length ?? 0} target pages prepared · {readyCount} fields ready · {pending} issues</p>
-      <button disabled={disabled || !runnableTargets.length} onClick={() => void run({ type: "RUN_TRANSFER" })}>Fill {session?.targets.length ?? 0} target {(session?.targets.length ?? 0) === 1 ? "page" : "pages"}</button>
+      <button disabled={disabled || !runnableTargets.length || Boolean(session?.profileDrift && !session.profileDrift.reviewed)} onClick={() => void run({ type: "RUN_TRANSFER" })}>Fill {session?.targets.length ?? 0} target {(session?.targets.length ?? 0) === 1 ? "page" : "pages"}</button>
       {running && <button onClick={() => void run({ type: "CANCEL_TRANSFER" })}>Cancel remaining work</button>}
       <p>Filled and checked means the page accepted the value. Review and submit on each website.</p>
     </section>

@@ -1,0 +1,145 @@
+{
+  "format": "rekeyzero-mapping-profile",
+  "schemaVersion": 1,
+  "minimumExtensionVersion": "0.2.0",
+  "profile": {
+    "name": "Synthetic Fulfilment",
+    "kind": "profile",
+    "version": 2,
+    "revision": 1,
+    "source": {
+      "origin": "http://127.0.0.1:4178",
+      "pathPattern": "/:segment/:segment",
+      "template": "9e13eee3f100ea0865d7cdba10eec288c0d2a705dbc56382b5cebca41d301b3b",
+      "title": "System Alpha CRM",
+      "fields": [
+        {
+          "templateKey": "23b4aaaf115e40eca3b30c6684bf03b0205334b51e43d6532397b47b53914ca9",
+          "identityKey": "b21e1d36c7c90c0ec0fbb8ddda7fd700476abfe55ee8e983c1a1f1cc2bd0d733",
+          "type": "text",
+          "label": "Legal company name"
+        },
+        {
+          "templateKey": "6e106c55e14aeb99160cef70abe5e7b82223690f1bf78fe1a0a4e91e87fc7fad",
+          "identityKey": "84d751841b503fa2051411423332b919f6a4192473b7810fb99d671875311bfd",
+          "type": "email",
+          "label": "Contact email"
+        },
+        {
+          "templateKey": "3f7d20e94449c2abbcbdda978459a9cb6b32401c57666f7c37388b3f30da7e0e",
+          "identityKey": "bd0c0ddf4cd8cbb2a4702d7b80d2e4b2676a34474acfe139eec61a3b242807dd",
+          "type": "number",
+          "label": "Annual turnover"
+        },
+        {
+          "templateKey": "bb44c2dda1e1d91f41953159334de07e01cb89d2a540942fd412822bf217c6b3",
+          "identityKey": "8451570ea9b86b340406b867b8a8b76c279aa00ea7256ae2165ac37fb5190aff",
+          "type": "text",
+          "label": "State"
+        },
+        {
+          "templateKey": "78043e53df58aaaba9b20ba160a6b2e8f84ea587e84ae8d80c809bd8e67e3379",
+          "identityKey": "cb302543971d912d55fb14571342ff65718bff6d6b2d6a075dd72abcad38f1ca",
+          "type": "date",
+          "label": "Account start date"
+        },
+        {
+          "templateKey": "0e0d80756aa380a9d3947dbda7df42c89bd9e443c6532745757b46d54e0b71af",
+          "identityKey": "d2410fa3bdcb41c1576d3ce8da9f716ed51ecac590730d911e1d88c5defe4a35",
+          "type": "text",
+          "label": "Industry"
+        },
+        {
+          "templateKey": "ca350760dd506145f51068a5fcd889072eea9e0f426b0e64a561946ad0f73476",
+          "identityKey": "0d99697ee619a084bc1aa5662e20ebfe4b4a96865a6f8108cf705dcdab729f42",
+          "type": "text",
+          "label": "Business category"
+        },
+        {
+          "templateKey": "119ede6d7c878cd7237576a81e9a535ae5dbaf53d09f001e694494ffac98d507",
+          "identityKey": "4c0e828d60b06fd4ad60a9275a13c350516166fcbef7e4475388476e1f9a6b87",
+          "type": "textarea",
+          "label": "Business description"
+        }
+      ]
+    },
+    "targets": [
+      {
+        "origin": "http://127.0.0.1:4178",
+        "pathPattern": "/:segment/:segment",
+        "template": "665e98dd8dc8891bb99eb036f72b1f543e6d980b1d57ed14789d6bbacdaf816e",
+        "title": "System Gamma Fulfilment",
+        "fields": [
+          {
+            "templateKey": "b0d3b0a5a42d043b1e213f5d154759f29d392c31a091573f2ef4daef7c92177c",
+            "identityKey": "87df6b2487ff69e29aad7ee41a59af93f84a29d0bfd3a5d143f4290465c412ea",
+            "type": "text",
+            "label": "Legal company name"
+          },
+          {
+            "templateKey": "6be7b6aaff79fc0065dd6920dea65ff5a9d1a1deebbb21409d96242c7496e275",
+            "identityKey": "354875ab18ce6545dd20ef54bcb9b44cfa6a65f31fa55e7ab8af5629afb98776",
+            "type": "email",
+            "label": "Contact email"
+          },
+          {
+            "templateKey": "f1479009336e77daa2aa0bf74368f4c5f08726b7bb08ae4cd4a9e865e16ef07a",
+            "identityKey": "ee14db56e2848097ff6397a0f565d7c004a73241776bfbf138c6104e3dca96bc",
+            "type": "number",
+            "label": "Annual revenue"
+          },
+          {
+            "templateKey": "b47a85f3889b002e9601d839bd052342558af4bddb373404b55baf30c4d919a7",
+            "identityKey": "cc6e13a25cb92c021b7682e4e893d45290654217ac6917061c1dbfcdd8301cc6",
+            "type": "select",
+            "label": "State"
+          },
+          {
+            "templateKey": "e26054e5acc6f04a52be754ad3a99186d0b6030a41f988a79d07ed726a3ba8cf",
+            "identityKey": "16f59edaee112747306a55f4b2730f8a8b9bd2b6c472372f1f120feb8f3037df",
+            "type": "date",
+            "label": "Account start date"
+          },
+          {
+            "templateKey": "350a62016fcc690e1ed20e137daa0aafefe4a213e1ff023428849456c49bf6b8",
+            "identityKey": "3bd8d83d02a28d7287a08d234f564f0981178ec5b47290603811b2e6ac4f1cbe",
+            "type": "textarea",
+            "label": "Business description"
+          }
+        ],
+        "mappings": [
+          {
+            "sourceTemplateKey": "23b4aaaf115e40eca3b30c6684bf03b0205334b51e43d6532397b47b53914ca9",
+            "targetTemplateKey": "b0d3b0a5a42d043b1e213f5d154759f29d392c31a091573f2ef4daef7c92177c",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "6e106c55e14aeb99160cef70abe5e7b82223690f1bf78fe1a0a4e91e87fc7fad",
+            "targetTemplateKey": "6be7b6aaff79fc0065dd6920dea65ff5a9d1a1deebbb21409d96242c7496e275",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "3f7d20e94449c2abbcbdda978459a9cb6b32401c57666f7c37388b3f30da7e0e",
+            "targetTemplateKey": "f1479009336e77daa2aa0bf74368f4c5f08726b7bb08ae4cd4a9e865e16ef07a",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "bb44c2dda1e1d91f41953159334de07e01cb89d2a540942fd412822bf217c6b3",
+            "targetTemplateKey": "b47a85f3889b002e9601d839bd052342558af4bddb373404b55baf30c4d919a7",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "78043e53df58aaaba9b20ba160a6b2e8f84ea587e84ae8d80c809bd8e67e3379",
+            "targetTemplateKey": "e26054e5acc6f04a52be754ad3a99186d0b6030a41f988a79d07ed726a3ba8cf",
+            "existingValuePolicy": "blank_only"
+          },
+          {
+            "sourceTemplateKey": "119ede6d7c878cd7237576a81e9a535ae5dbaf53d09f001e694494ffac98d507",
+            "targetTemplateKey": "350a62016fcc690e1ed20e137daa0aafefe4a213e1ff023428849456c49bf6b8",
+            "existingValuePolicy": "blank_only"
+          }
+        ]
+      }
+    ]
+  }
+}

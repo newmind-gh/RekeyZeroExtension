@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 const submissions = []
 let deltaBundle
 
-async function buildDeltaBundle() {
+export async function buildDeltaBundle() {
   if (deltaBundle) return deltaBundle
   const { build } = await import("../../apps/extension/node_modules/esbuild/lib/main.js")
   const result = await build({
@@ -40,7 +40,7 @@ function submittedValuesScript(formSelector, dialogSelector) {
   });`
 }
 
-function route(pathname) {
+export function route(pathname) {
   if (pathname === "/transfer-demo") return page("Batch transfer test workspace", `
     <style>.demo-actions{display:flex;align-items:center;gap:12px;margin:22px 0}.demo-actions button{margin:0;border:0;border-radius:9px;background:#111827;color:white;font-weight:700;cursor:pointer}.demo-actions button:hover{background:#263449}.demo-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.demo-links a{display:block;padding:24px;border-radius:14px;color:white;text-decoration:none}.demo-links a:nth-child(1){background:#17324d}.demo-links a:nth-child(2){background:#5b3f91}.demo-links a:nth-child(3){background:#08766e}.demo-links a:nth-child(4){background:#2563eb}.demo-links small{display:block;margin-top:10px;opacity:.8}@media(max-width:700px){.demo-links{grid-template-columns:1fr}}</style>
     <p>Open the systems in separate tabs. Use System Alpha as the source and Systems Beta, Gamma, and Delta as targets.</p>
@@ -155,6 +155,16 @@ function route(pathname) {
   if (pathname === "/unknown") return page("Processing", `<p>Your request is still processing.</p>`)
   if (pathname === "/ambiguous-submit") return page("Ambiguous action", `<label>Value <input name="value"></label><button type="button">Process</button>`)
   if (pathname === "/destructive") return page("Destructive controls", `<button type="button">Delete account</button><button type="button">Cancel subscription</button>`)
+  if (pathname === "/adapter-controls") return page("Adapter controls", `
+    <div data-record-id="ADAPTER-DEMO-001"><h2>Application ID: ADAPTER-DEMO-001</h2></div>
+    <fieldset><legend>Business</legend><label>Revenue<input name="revenue" type="number"></label></fieldset>
+    <fieldset><legend>Address</legend><button type="button" role="combobox" aria-label="State" aria-controls="state-options" aria-valuetext="">Choose state</button>
+      <div id="state-options" role="listbox" hidden><button type="button" role="option" data-value="AU-NSW" aria-selected="false">New South Wales</button><button type="button" role="option" data-value="AU-VIC" aria-selected="false">Victoria</button></div></fieldset>
+    <div id="shadow-address"></div><iframe id="address-frame" title="Same-origin address" src="/native-form"></iframe>`,
+    `const combo=document.querySelector('[role="combobox"]');const menu=document.querySelector('[role="listbox"]');combo.onclick=()=>{menu.hidden=false;combo.setAttribute('aria-expanded','true')};
+     menu.querySelectorAll('[role="option"]').forEach(option=>option.onclick=()=>{menu.querySelectorAll('[role="option"]').forEach(item=>item.setAttribute('aria-selected',String(item===option)));combo.textContent=option.textContent;combo.setAttribute('aria-valuetext',option.textContent);menu.hidden=true;combo.setAttribute('aria-expanded','false')});
+     document.querySelector('#shadow-address').attachShadow({mode:'open'}).innerHTML='<fieldset><legend>Shadow address</legend><label>Postcode<input name="postcode"></label></fieldset>'`)
+  if (pathname === "/section-form") return page("Section form", ["Insured", "Risk", "Claims"].map(section=>`<fieldset><legend>${section}</legend>${Array.from({length:80},(_,index)=>`<label>${section} field ${index+1}<input name="${section.toLowerCase()}.field${index+1}"></label>`).join('')}</fieldset>`).join(''))
   if (pathname === "/iframe") return page("Iframe", `<iframe title="Nested details" src="/native-form"></iframe>`)
   if (pathname === "/shadow-dom") return page("Shadow DOM", `<div id="host"></div>`,
   `document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<label>Shadow value <input name="shadow_value"></label>'`)

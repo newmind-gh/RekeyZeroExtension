@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { chromium, expect, test } from "@playwright/test"
 import type { BrowserContext, Page, Worker } from "@playwright/test"
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -253,4 +254,199 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
     await expect(extensionPage.getByLabel("Transfer Profile", { exact: true })).toHaveValue("")
     await admin.close()
   })
+
+  for (const change of ["new", "missing", "type", "ambiguous"] as const) {
+    test(`reviews ${change} target drift and fills only compatible saved mappings`, async () => {
+      await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+      const source = await context.newPage(), target = await context.newPage()
+      await source.goto(`${portal.baseUrl}/transfer-demo/source`)
+      await target.goto(`${portal.baseUrl}/transfer-demo/marketplace`)
+      const [sourceId, targetId] = await extensionPage.evaluate(async (origin) => Promise.all(["source", "marketplace"].map(async (path) =>
+        (await chrome.tabs.query({ url: `${origin}/transfer-demo/${path}` }))[0].id!)), portal.baseUrl)
+      await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId: sourceId } })
+      const initial = await request<Session>({ type: "TRANSFER", command: { type: "ADD_TARGETS", tabIds: [targetId] } })
+      const profile = await saveProfile(initial, `Drift ${change}`, { "System Beta Marketplace Portal": {
+        "Registered business": { source: "Legal company name" }, "Operations email": { source: "Contact email" },
+      } })
+      expect(profile.version).toBe(2)
+      await target.evaluate((change) => {
+        const field = document.querySelector<HTMLInputElement>('[name="seller_legal_entity"]')!
+        if (change === "new") {
+          const input = document.createElement("input"); input.name = "new_company"; input.setAttribute("aria-label", "Legal company name")
+          document.querySelector("form")!.appendChild(input)
+        } else if (change === "missing") field.remove()
+        else if (change === "type") field.type = "email"
+        else field.parentElement!.appendChild(field.cloneNode(true))
+      }, change)
+      await extensionPage.reload()
+      await extensionPage.getByLabel("Transfer Profile", { exact: true }).selectOption(profile.id)
+      const profileSection = extensionPage.locator("section.card").filter({ has: extensionPage.getByRole("heading", { name: "ZeroKey Profile", exact: true }) })
+      await profileSection.getByRole("button", { name: "Fill", exact: true }).click()
+      const report = extensionPage.getByLabel("Profile Drift Report")
+      await expect(report).toBeVisible()
+      await expect(target.getByLabel("Operations email")).toHaveValue("")
+      await expect(request({ type: "TRANSFER", command: { type: "RUN_TRANSFER" } })).rejects.toThrow("Review and approve")
+      const prepared = await request<Session>({ type: "TRANSFER", command: { type: "GET_TRANSFER" } })
+      const drift = prepared.profileDrift!.reports.find((item) => item.page === "target")!
+      if (change === "new") expect(drift.newFields).toContain("Legal company name")
+      if (change === "missing") expect(drift.missingMappedFields).toContain("Registered business")
+      if (change === "type") expect(drift.changedControlTypes).toContain("Registered business")
+      if (change === "ambiguous") expect(drift.ambiguousFields).toContain("Registered business")
+      await report.getByRole("button", { name: "Approve compatible fields" }).click()
+      await extensionPage.getByRole("button", { name: "Fill 1 target page", exact: true }).click()
+      await expect(target.getByLabel("Operations email")).toHaveValue("operations@example.com")
+      await expect.poll(async () => (await request<Session>({ type: "TRANSFER", command: { type: "GET_TRANSFER" } })).status).not.toBe("running")
+      if (change === "new") {
+        await expect(target.getByLabel("Registered business")).toHaveValue("Example Commerce Group Pty Ltd")
+        await expect(target.getByLabel("Legal company name", { exact: true })).toHaveValue("")
+        await profileSection.getByRole("button", { name: "Open Profile" }).click()
+        const newField = extensionPage.locator(".profile-field", { hasText: "Legal company name" }).filter({ has: extensionPage.locator('strong:text-is("Legal company name")') })
+        await newField.getByLabel("Existing value policy").selectOption("skip")
+        await extensionPage.getByRole("button", { name: "Save Profile", exact: true }).click()
+        const updated = (await request<MappingProfile[]>({ type: "TRANSFER", command: { type: "GET_MAPPING_PROFILES" } })).find((item) => item.id === profile.id)!
+        expect(updated.revision).toBe(2)
+        await request({ type: "TRANSFER", command: { type: "USE_MAPPING_PROFILE", profileId: updated.id } })
+        expect((await request<Session>({ type: "TRANSFER", command: { type: "GET_TRANSFER" } })).profileDrift).toBeUndefined()
+      } else if (change !== "missing") {
+        for (const input of await target.getByLabel("Registered business", { exact: true }).all()) await expect(input).toHaveValue("")
+      }
+      await request({ type: "TRANSFER", command: { type: "DELETE_MAPPING_PROFILE", profileId: profile.id } })
+      await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+      await Promise.all([source.close(), target.close()])
+    })
+  }
+
+  test("requires fresh drift review after page changes and rejects wrong-page candidates", async () => {
+    await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+    const source = await context.newPage(), target = await context.newPage()
+    await source.goto(`${portal.baseUrl}/transfer-demo/source`); await target.goto(`${portal.baseUrl}/transfer-demo/marketplace`)
+    const [sourceId, targetId] = await extensionPage.evaluate(async (origin) => Promise.all(["source", "marketplace"].map(async (path) =>
+      (await chrome.tabs.query({ url: `${origin}/transfer-demo/${path}` }))[0].id!)), portal.baseUrl)
+    await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId: sourceId } })
+    const initial = await request<Session>({ type: "TRANSFER", command: { type: "ADD_TARGETS", tabIds: [targetId] } })
+    const profile = await saveProfile(initial, "Source drift", { "System Beta Marketplace Portal": {
+      "Registered business": { source: "Legal company name" }, "Operations email": { source: "Contact email" },
+    } })
+    await source.getByLabel("Legal company name").evaluate((field) => field.remove())
+    const prepared = await request<Session>({ type: "TRANSFER", command: { type: "USE_MAPPING_PROFILE", profileId: profile.id } })
+    expect(prepared.profileDrift!.reports[0].missingMappedFields).toContain("Legal company name")
+    expect(prepared.targets[0].plan!.actions.find((action) => action.field.label === "Registered business")!.status).toBe("unmapped")
+    await target.evaluate(() => {
+      const input = document.createElement("input"); input.name = "new-field"; input.setAttribute("aria-label", "New field")
+      document.querySelector("form")!.appendChild(input)
+    })
+    await expect(request({ type: "TRANSFER", command: { type: "APPROVE_PROFILE_DRIFT" } })).rejects.toThrow("Page changed")
+    await target.evaluate(() => { document.title = "Unrelated portal" })
+    await expect(request({ type: "TRANSFER", command: { type: "USE_MAPPING_PROFILE", profileId: profile.id } })).rejects.toThrow("Open the target")
+    await request({ type: "TRANSFER", command: { type: "DELETE_MAPPING_PROFILE", profileId: profile.id } })
+    await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+    await Promise.all([source.close(), target.close()])
+  })
+
+  test("exports and previews a value-free Profile, imports a new copy, and refreshes the Side Panel", async () => {
+    await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+    const source = await context.newPage(), target = await context.newPage()
+    await source.goto(`${portal.baseUrl}/transfer-demo/source`); await target.goto(`${portal.baseUrl}/transfer-demo/marketplace`)
+    const [sourceId, targetId] = await extensionPage.evaluate(async (origin) => Promise.all(["source", "marketplace"].map(async (path) =>
+      (await chrome.tabs.query({ url: `${origin}/transfer-demo/${path}` }))[0].id!)), portal.baseUrl)
+    await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId: sourceId } })
+    const initial = await request<Session>({ type: "TRANSFER", command: { type: "ADD_TARGETS", tabIds: [targetId] } })
+    const profile = await saveProfile(initial, "Portable fixture", { "System Beta Marketplace Portal": {
+      "Registered business": { source: "Legal company name" }, "Operations email": { source: "Contact email" },
+    } })
+    const content = await request<string>({ type: "PERSONAL_EXPORT_PROFILE", profileId: profile.id })
+    expect(content).not.toContain("Example Commerce Group Pty Ltd")
+    expect(content).not.toContain("operations@example.com")
+    expect(content).not.toContain("CUST-DEMO-001")
+    const adminPromise = context.waitForEvent("page")
+    await extensionPage.getByRole("button", { name: "Open RekeyZero Admin" }).click()
+    const admin = await adminPromise; await admin.waitForLoadState("domcontentloaded")
+    await admin.locator(".profile-list > div", { hasText: "Portable fixture" }).getByRole("button", { name: "Open" }).click()
+    const downloadPromise = admin.waitForEvent("download")
+    await admin.getByRole("button", { name: "Export Profile", exact: true }).click()
+    expect((await downloadPromise).suggestedFilename()).toContain("rekeyzero-profile")
+    const input = JSON.parse(content); input.profile.name = "Imported fixture"
+    await admin.getByLabel("Import Profile", { exact: true }).setInputFiles({ name: "fixture.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(input)) })
+    await expect(admin.getByRole("heading", { name: "Review Profile import" })).toBeVisible()
+    expect((await request<MappingProfile[]>({ type: "TRANSFER", command: { type: "GET_MAPPING_PROFILES" } })).length).toBe(1)
+    await admin.getByRole("button", { name: "Import as new Profile" }).click()
+    await expect(admin.getByText(/Profile imported as a new copy/)).toBeVisible()
+    const saved = await request<MappingProfile[]>({ type: "TRANSFER", command: { type: "GET_MAPPING_PROFILES" } })
+    const imported = saved.find((item) => item.name === "Imported fixture")!
+    expect(imported.id).not.toBe(profile.id)
+    await expect(extensionPage.getByLabel("Transfer Profile", { exact: true }).locator(`option[value="${imported.id}"]`)).toHaveText("Imported fixture")
+    await request({ type: "TRANSFER", command: { type: "USE_MAPPING_PROFILE", profileId: imported.id } })
+    await request({ type: "TRANSFER", command: { type: "RUN_TRANSFER" } })
+    await expect(target.getByLabel("Registered business")).toHaveValue("Example Commerce Group Pty Ltd")
+    await expect.poll(async () => (await request<Session>({ type: "TRANSFER", command: { type: "GET_TRANSFER" } })).status).not.toBe("running")
+    for (const item of saved) await request({ type: "TRANSFER", command: { type: "DELETE_MAPPING_PROFILE", profileId: item.id } })
+    await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+    await Promise.all([source.close(), target.close(), admin.close()])
+  })
+
+
+  test("uses the checked-in synthetic Profile examples against real fixture controls", async () => {
+    const source = await context.newPage(); await source.goto(`${portal.baseUrl}/transfer-demo/source`)
+    const sourceId = await extensionPage.evaluate(async (origin) => (await chrome.tabs.query({ url: `${origin}/transfer-demo/source` }))[0].id!, portal.baseUrl)
+    for (const name of ["marketplace", "fulfilment"]) {
+      await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+      const target = await context.newPage(); await target.goto(`${portal.baseUrl}/transfer-demo/${name}`)
+      const targetId = await extensionPage.evaluate(async (url) => (await chrome.tabs.query({ url }))[0].id!, `${portal.baseUrl}/transfer-demo/${name}`)
+      await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId: sourceId } })
+      const state = await request<Session>({ type: "TRANSFER", command: { type: "ADD_TARGETS", tabIds: [targetId] } })
+      const content = JSON.parse(readFileSync(join(import.meta.dirname, `../../../examples/profiles/synthetic-${name}.json`), "utf8"))
+      for (const [baseline, observed] of [[content.profile.source, state.source!], [content.profile.targets[0], state.targets[0].observation!]] as const) {
+        expect(baseline.fields.map((field: { templateKey: string }) => field.templateKey).sort()).toEqual(observed.fields.map((field) => field.templateKey).sort())
+        const expectedHash = createHash("sha256").update(JSON.stringify([baseline.origin,
+          observed.fields.map((field) => [field.templateKey, field.type]).sort((a, b) => a[0].localeCompare(b[0])),
+        ])).digest("hex")
+        expect(baseline.template).toBe(expectedHash)
+        // The E2E fixture uses an ephemeral port; examples retain their documented default port.
+        baseline.origin = portal.baseUrl; baseline.template = observed.template
+      }
+      const home = await request<{ profiles: MappingProfile[] }>({ type: "PERSONAL_IMPORT_PROFILE", content: JSON.stringify(content) })
+      const profile = home.profiles.find((item) => item.name === content.profile.name)!
+      const prepared = await request<Session>({ type: "TRANSFER", command: { type: "USE_MAPPING_PROFILE", profileId: profile.id } })
+      expect(prepared.profileDrift).toBeUndefined()
+      await request({ type: "TRANSFER", command: { type: "RUN_TRANSFER" } })
+      await expect(target.getByLabel(name === "marketplace" ? "Operations email" : "Contact email")).toHaveValue("operations@example.com")
+      await expect.poll(async () => (await request<Session>({ type: "TRANSFER", command: { type: "GET_TRANSFER" } })).status).not.toBe("running")
+      if (name === "fulfilment") await expect(target.getByLabel("Legal company name")).toHaveValue("Existing draft merchant")
+      await request({ type: "TRANSFER", command: { type: "DELETE_MAPPING_PROFILE", profileId: profile.id } })
+      await target.close()
+    }
+    await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } }); await source.close()
+  })
+
+  test("saves and reuses a late large-form section without observing other section values", async () => {
+    await request({ type: "TRANSFER", command: { type: "RESET_TRANSFER" } })
+    const source = await context.newPage()
+    const target = await context.newPage()
+    await source.goto(`${portal.baseUrl}/section-form`)
+    await target.goto(`${portal.baseUrl}/section-form`)
+    await source.getByLabel("Claims field 80", { exact: true }).fill("Reviewed claim")
+    await source.locator("input").evaluateAll((inputs) => inputs.forEach((input) => { (input as HTMLInputElement).readOnly = true }))
+    const [sourceId, targetId] = await extensionPage.evaluate(async (source) => {
+      const tabs = await chrome.tabs.query({})
+      const matching = tabs.filter((tab) => tab.url === source)
+      return matching.map((tab) => tab.id!)
+    }, source.url())
+    let state = await request<Session>({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId: sourceId, group: "Claims" } })
+    expect(state.source!.fields).toHaveLength(80)
+    expect(state.source!.truncated).toBe(false)
+    state = await request<Session>({ type: "TRANSFER", command: { type: "ADD_TARGETS", tabIds: [targetId] } })
+    state = await request<Session>({ type: "TRANSFER", command: { type: "SET_TARGET_GROUPS", targetId: state.targets[0].id, groups: ["Claims"] } })
+    const profile = await saveProfile(state, "Claims section only", { "Section form": { "Claims field 80": { source: "Claims field 80" } } })
+    expect(profile.source.selectedGroups).toEqual(["Claims"])
+    expect(profile.targets[0].selectedGroups).toEqual(["Claims"])
+    const exported = await request<string>({ type: "PERSONAL_EXPORT_PROFILE", profileId: profile.id })
+    expect(JSON.parse(exported).minimumExtensionVersion).toBe("0.3.0")
+    await extensionPage.evaluate(async (tabId) => chrome.tabs.update(tabId, { active: true }), sourceId)
+    await request({ type: "TRANSFER", command: { type: "USE_MAPPING_PROFILE", profileId: profile.id } })
+    await request({ type: "TRANSFER", command: { type: "RUN_TRANSFER" } })
+    await expect(target.getByLabel("Claims field 80", { exact: true })).toHaveValue("Reviewed claim")
+    await expect(target.getByLabel("Insured field 1", { exact: true })).toHaveValue("")
+    await Promise.all([source.close(), target.close()])
+  })
+
 })

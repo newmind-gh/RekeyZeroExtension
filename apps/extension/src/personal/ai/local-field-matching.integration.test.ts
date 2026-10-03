@@ -94,7 +94,13 @@ describe("Local AI Fill Setup orchestration", () => {
           },
           local: { set: async () => undefined },
         },
+        permissions: { contains: async () => true },
         tabs: {
+          sendMessage: async (tabId: number, request: { type: string }) => request.type === "PING" ? { ok: true } : {
+            ok: true, envelope: request, observation: tabId === 1
+              ? (sessionValues.rekeyzeroTransfer as Session).source
+              : (sessionValues.rekeyzeroTransfer as Session).targets[0].observation,
+          },
           get: async (tabId: number) => ({
             id: tabId,
             windowId: 1,

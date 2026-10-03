@@ -12,6 +12,10 @@ RekeyZero is an open-source Chromium extension for safely reusing information fr
 
 AI is optional. When enabled, it can propose field relationships, but it does not control the browser, execute arbitrary JavaScript or selectors, or submit forms for you.
 
+[Try the synthetic live demo](https://newmind-gh.github.io/RekeyZeroExtension/) · [Watch the actual extension walkthrough](https://newmind-gh.github.io/RekeyZeroExtension/walkthrough.webm)
+
+The demo uses synthetic records and the real extension. AI matching is optional; the recorded walkthrough uses a manually reviewed Profile. Demo Submit opens a local preview only.
+
 ![RekeyZero Personal Side Panel showing a saved AI ZeroKey Profile with validated field matches](docs/images/rekeyzero-ai-profile-saved.png)
 
 ## What RekeyZero does
@@ -132,6 +136,16 @@ Then:
 
 Later builds overwrite the same directory. Click **Reload** on the installed extension to pick up changes.
 
+## Profile changes and sharing
+
+New Profiles save value-free field baselines. When a portal adds, removes, duplicates, or changes a control, RekeyZero shows a **Profile Drift Report** before filling. Review and approve the compatible saved mappings for the current batch. Missing, changed, or ambiguous mappings remain blocked, and new fields are never automatically mapped. Use **Open Profile → Save Profile** to update the baseline and increment its revision.
+
+Profiles created before v0.2.0 retain exact-template matching until they are opened and saved again. Drift candidates require the saved origin, path shape, page title, and overlapping field identities; unrelated pages remain unavailable.
+
+In **Admin → Profiles / AI Setups**, use **Import Profile** to preview a portable JSON file and confirm **Import as new Profile**. Standard Profiles can be exported from their detail view; AI Profiles have an export action in their list. Imports create new IDs and request no website permissions. Portable files contain versioned template metadata and mapping policy, including overwrite policy, but no runtime values, tab IDs, API keys, or logs.
+
+Try the [synthetic marketplace Profile](examples/profiles/synthetic-marketplace.json) or [synthetic fulfilment Profile](examples/profiles/synthetic-fulfilment.json) with RekeyZero v0.2.0 or newer. Start `node tests/extension-portal/server.mjs`, open `http://127.0.0.1:4178/transfer-demo/source` and the corresponding target in separate tabs, then import the JSON in Admin. These examples use blank-only filling; the fulfilment portal's existing company value remains protected. Use the exact fixture origin and port shown here.
+
 ## Product screenshots
 
 RekeyZero supports both **non-AI** and **AI-enabled** workflows. Use **ZeroKey Profile** when you do not want to use AI and prefer to map fields manually. Use **AI ZeroKey Profile** when you want AI to propose field matches; the accepted mappings still use the same guarded, deterministic fill executor.
@@ -215,7 +229,7 @@ dist/rekeyzero-personal.sha256
 
 The package process records source identity and file hashes, scans for secrets and remote-hosted executable references, and embeds `release-manifest.json` in the ZIP. The `.sha256` file provides the ZIP checksum. Product changes require a new package and browser validation.
 
-For the first release, commit and push the reviewed changes to `main`, wait for CI to pass, then tag that commit `v0.1.0` and push the tag. The tag must match both package and extension versions; the Release workflow validates the source and publishes the assets automatically. Download the ZIP from [GitHub Releases](https://github.com/newmind-gh/RekeyZeroExtension/releases), verify its checksum, extract it, then load the extracted directory through **Load unpacked**.
+For a release, commit and push the reviewed changes to `main`, wait for CI to pass, then tag that commit `v0.3.0` and push the tag. The tag must match both package and extension versions; the Release workflow validates the source and publishes the assets automatically. Download the ZIP from [GitHub Releases](https://github.com/newmind-gh/RekeyZeroExtension/releases), verify its checksum, extract it, then load the extracted directory through **Load unpacked**.
 
 ## Repository layout
 
@@ -224,13 +238,22 @@ apps/extension/          Personal Chromium extension
 tests/extension-portal/  Synthetic pages used by extension tests
 .github/workflows/       CI and version-tag release workflows
 docs/                    Product documentation and screenshots
+examples/profiles/       Value-free synthetic portable Profiles
 ```
 
 This repository contains the extension and synthetic test portals. Legacy web and platform packages have been removed. Generated `dist/` files are ignored by Git and distributed through Actions artifacts and Releases.
 
+## Deterministic Control Adapters (v0.3.0)
+
+The execution layer separates DOM traversal, control adapters, and the existing safety guards. The ordered registry provides native input, textarea, select, checkbox and grouped-radio adapters, the explicit RekeyZero listbox adapter, and a conservative generic ARIA listbox adapter. Adapters expose semantic types such as `boolean`, `single_select`, and `single_choice`; native `type` metadata remains compatible with saved Profiles. They may read and write only an observed control and its uniquely owned `aria-controls` listbox. They cannot navigate, submit, upload, or execute model-generated actions.
+
+Observation never opens a popup to discover options. A generic ARIA popup must already exist with a complete, unique option list; if it mounts dynamically, open it manually and prepare again. Writes recheck page/record identity, structure, before value and options after opening the popup and before selecting an exact option, then verify the actual read-back. Framework-specific adapters require evidence from real portal fixtures; the synthetic React portal demonstrates the explicit bounded contract rather than claiming universal MUI or React Select compatibility.
+
+The synthetic portal is exported from the same fixtures used by browser tests. `node tests/extension-portal/build-demo.mjs` creates ignored `dist/demo/`; `node tests/extension-portal/record-demo.mjs` records the actual unpacked extension. The `Synthetic demo` workflow validates both and deploys to GitHub Pages on main. Repository Settings → Pages must use **GitHub Actions**. Generated demo and recording files are Actions artifacts, not committed binaries.
+
 ## Current limitations
 
-RekeyZero is DOM-first and does not perform unattended navigation, final submission, post-submit business-response capture, visual Computer Use, or arbitrary model actions. Supported controls include common native inputs, textarea, select, checkbox, grouped radio controls, and explicitly adapted listbox/combobox widgets. Unadapted custom widgets, nested frames, Shadow DOM, PDFs, and canvas are not filled.
+RekeyZero is DOM-first and does not perform unattended navigation, final submission, post-submit business-response capture, visual Computer Use, or arbitrary model actions. Supported controls include common native inputs, textarea, select, checkbox, grouped radio controls, and explicitly adapted listbox/combobox widgets. Standards-based ARIA single-select controls are supported when the complete unique option list and popup ownership are observable. Open Shadow DOM and non-sandboxed same-origin iframes are included in bounded traversal. Closed shadow roots, cross-origin frames, multi-select, free-form custom widgets, PDFs, and canvas remain unsupported. Large forms retain a 120-control limit per observation; select a source or target section when creating a Profile.
 
 Real customer portals require acceptance testing for site-specific autosave, delayed validation, custom controls, and server-side persistence behavior.
 

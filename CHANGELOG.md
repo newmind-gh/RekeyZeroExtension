@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## Unreleased — 0.3.0
+
+- Extract bounded deterministic control adapters with semantic control descriptions and guarded exact-option selection.
+- Support conservative ARIA single-select listboxes, open Shadow DOM, and non-sandboxed same-origin iframes.
+- Add source/target section observation for large forms while retaining the 120-control limit.
+- Export the synthetic test portals as a static GitHub Pages demo with a real extension walkthrough recording.
+- Add browser regressions for option drift, popup ownership, shadow/frame writes, frame replacement, sections, and static deployment paths.
+
+- Add value-free Profile v2 baselines and revision counters with Profile Drift Detection and explicit batch approval.
+- Block missing, type-changed, ambiguous, and new unmapped fields without same-label fallback in saved Profile execution.
+- Add Admin Profile export and preview/confirm import with strict schema/version validation and fresh IDs.
+- Add synthetic marketplace and fulfilment portable examples and browser regression coverage.
+
+## 0.1.0 — repository readiness
 
 - Added the Personal Chromium extension.
 - Added Side Panel configuration for user-supplied Gemini and DeepSeek model names and API keys, with direct provider requests from the extension service worker.

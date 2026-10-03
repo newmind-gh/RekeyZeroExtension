@@ -11,7 +11,7 @@ function Combobox({ label, value, options, onChange }: {
 }) {
   const [open, setOpen] = useState(false)
   const instanceId = useRef(crypto.randomUUID()).current
-  const listboxId = `delta-${label.toLowerCase()}-${instanceId}`
+  const listboxId = `delta-${label.toLowerCase().replace(/\s+/g, "-")}-${instanceId}`
   const selected = options.find((option) => option.value === value)
   return <div className="delta-control">
     <span>{label}</span>
@@ -26,7 +26,7 @@ function Combobox({ label, value, options, onChange }: {
       data-rekeyzero-options={JSON.stringify(options)}
       data-react-instance={instanceId}
       onClick={() => setOpen((current) => !current)}
-    >{selected?.label ?? `Choose ${label.toLowerCase()}`}</button>
+    >{selected?.label ?? `Choose ${label.toLowerCase().replace(/\s+/g, "-")}`}</button>
     {open && <div id={listboxId} role="listbox">
       {options.map((option) => <button
         type="button"

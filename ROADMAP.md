@@ -21,9 +21,15 @@
 
 ## Phase 3 — ecosystem
 
-- Publish Mapping Profile examples using synthetic data
-- Add Profile Drift Detection with explicit human review
-- Add value-free Profile import/export
+- Grow the synthetic Mapping Profile example library
+- Expand Profile Drift Detection acceptance coverage for real customer portals (initial detection and review are available)
+- Expand community value-free Profile examples (import/export and synthetic examples are available)
 - Expand deterministic Control Adapters
-- Publish the synthetic portal as a live demo
+- Synthetic portal static export, actual extension recording, and GitHub Pages deployment workflow implemented
 - Define trademark usage rules before public branding or distribution
+
+### Deterministic adapters
+
+- Implemented: native and explicit listbox adapter registry, conservative generic ARIA single-select, open Shadow DOM, same-origin iframe scopes, and section observation.
+- Next: add MUI Autocomplete or React Select adapters only with representative real portal fixtures and the same guarded contract.
+- Cross-origin frames, closed roots, multi-select and unrestricted browser automation remain outside current support.

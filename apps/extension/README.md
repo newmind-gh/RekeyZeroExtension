@@ -65,6 +65,18 @@ transfer_mapping_profiles
 
 There is no second destination/mapping persistence layer.
 
+## Profile drift and portability (v0.2.0)
+
+New saves use Mapping Profile v2 with a revision counter and value-free field descriptors (`templateKey`, type-independent `identityKey`, control type, and label). Existing v1 Profiles are retained without a database migration and remain exact-only until resaved.
+
+Exact template matches take priority. When no exact candidate is available, drift matching requires the same origin, value-free path shape, normalized page title, and at least one overlapping baseline field. Truncated or blocked observations cannot be drift candidates. Source ambiguity still requires selecting the intended source tab; ambiguous changed targets cannot be arbitrarily chosen for editing.
+
+The Side Panel displays unchanged mapped fields, missing mapped fields, new fields, changed control types, and ambiguous fields. **Fill** pauses before any write until **Approve compatible fields** confirms that exact observed batch. Approval re-observes every bound page and refuses stale review. Approval does not update stored templates. **Open Profile → Save Profile** rebuilds the baseline after review and increments the revision; saving also rechecks source and target structure. New fields and broken mappings never receive same-label fallback when executing a saved Profile, including dynamic replans. Recheck cannot bypass a changed template; prepare the Profile again.
+
+Admin supports **Export Profile** and **Import Profile** with preview and explicit confirmation. Files use `format: rekeyzero-mapping-profile`, `schemaVersion: 1`, and `minimumExtensionVersion: 0.2.0`. They include Profile kind, revision, source/target templates and mappings, and existing-value policy. Export uses an explicit metadata allowlist. Import validates nested properties, URL origins, value-free path shapes, supported versions, mapping references, duplicate targets, and a 1 MB file-size limit. Unknown properties, runtime values, credentials, arbitrary selectors, and scripts are rejected. Import creates new IDs and timestamps, preserves existing Profiles, broadcasts list refresh, and does not grant permissions or contact websites/providers.
+
+Synthetic examples are in `examples/profiles/`; run the fixture at `http://127.0.0.1:4178` and use the documented source/target routes. Chromium E2E covers all drift classes, stale review, wrong-page rejection, revised exact matching, Admin import/export, and filling from an imported Profile.
+
 ## Page matching and execution safety
 
 The Side Panel dynamically lists open HTTP(S) tabs across browser windows. Website access remains optional and is requested for the exact source/target origins the user chooses.
@@ -86,7 +98,7 @@ Different existing target values are protected unless the Mapping Profile explic
 
 The worker checkpoints the active batch in `chrome.storage.session`. It allows at most three concurrent sites and one writing target per origin. After worker recovery, uncertain writes are read before replay so already-matching values are not rewritten.
 
-Supported controls include native text/date/number inputs, textarea, single-select, checkbox, grouped radio controls, and the explicit listbox-combobox adapter contract. Unadapted custom widgets, nested frames, Shadow DOM, PDFs and canvas are not filled.
+Supported controls include native text/date/number inputs, textarea, single-select, checkbox, grouped radio controls, and the explicit listbox-combobox adapter contract. The conservative ARIA listbox adapter supports uniquely owned, complete option lists. Open Shadow DOM and non-sandboxed same-origin iframes share the same safety model. Closed roots, cross-origin frames, free-form custom widgets, multi-select, PDFs and canvas remain unsupported. Source and target section selection allows later sections of large forms to be observed within the existing 120-control bound.
 
 ## RekeyZero Admin
 
@@ -172,3 +184,11 @@ Normal Workspace export contains the current durable stores, including `transfer
 The extension is DOM-first. It does not execute model-generated JavaScript, arbitrary selectors, visual Computer Use, or unattended navigation. Real customer portals still require acceptance testing for site-specific autosave, delayed validation, custom controls, and server-side persistence behavior.
 
 Build, permission, persistence, and validation procedures are documented in this file and the repository README.
+
+## Control adapters (v0.3.0)
+
+`transfer/control-adapters.ts` defines the narrow observe/read/accepted-values/write/verify contract and specific-to-generic registry. `transfer/dom-traversal.ts` discovers document, open shadow and same-origin frame scopes with depth, root and node bounds. Scope document tokens participate in the structure hash so reloaded child documents invalidate a prepared action. Record evidence from all observed scopes participates in identity guards.
+
+Adapters cannot bypass `page.ts` guards. The executor rechecks the reviewed plan immediately before a native setter or exact popup-option click, checks connectivity across parent scopes, and verifies read-back and validation. Generic ARIA observation never clicks to discover options; absent or ambiguous options remain read-only. Legacy native field keys are preserved. No framework-specific adapters are guessed from CSS classes.
+
+Large-form section scopes are saved in Profile metadata and exported with minimum extension version 0.3.0. Record-specific groups cannot be exported as portable sections. Existing unscoped portable Profiles remain compatible with 0.2.0.

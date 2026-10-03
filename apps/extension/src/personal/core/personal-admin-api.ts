@@ -7,6 +7,8 @@ export interface PersonalAdminApi {
   home(): Promise<PersonalHomeData>
   saveProfile(profile: MappingProfile): Promise<PersonalHomeData>
   deleteProfile(profileId: string): Promise<PersonalHomeData>
+  exportProfile(profileId: string): Promise<string>
+  importProfile(content: string): Promise<PersonalHomeData>
   clearAll(): Promise<void>
   exportData(): Promise<string>
   exportRecoveryData(): Promise<string>

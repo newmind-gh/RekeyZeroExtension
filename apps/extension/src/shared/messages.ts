@@ -3,6 +3,8 @@ import type { Command, MappingProfile } from "../transfer/types"
 export type WorkerRequest =
   | { type: "PERSONAL_GET_HOME" }
   | { type: "PERSONAL_SAVE_PROFILE"; profile: MappingProfile }
+  | { type: "PERSONAL_EXPORT_PROFILE"; profileId: string }
+  | { type: "PERSONAL_IMPORT_PROFILE"; content: string }
   | { type: "PERSONAL_DELETE_PROFILE"; profileId: string }
   | { type: "PERSONAL_CLEAR_ALL" }
   | { type: "PERSONAL_EXPORT" }

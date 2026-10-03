@@ -1,3 +1,4 @@
+import { exportMappingProfile, importMappingProfile } from "../../transfer/profile-portability"
 import { LocalModelProvider } from "../ai/local-model-provider"
 import { DEFAULT_LOCAL_MODEL_ID, LOCAL_MODELS, localModel } from "../ai/model-registry"
 import { PersonalModelRouter } from "../ai/model-router"
@@ -84,6 +85,7 @@ export class PersonalAdminService implements PersonalAdminApi {
       ...existing,
       name,
       targets,
+      revision: (existing.revision ?? 1) + 1,
       updatedAt: new Date().toISOString(),
     }
     await putStored("transfer_mapping_profiles", saved)
@@ -103,6 +105,19 @@ export class PersonalAdminService implements PersonalAdminApi {
       providerOrigins,
       profiles: remaining,
     }).catch(() => false)))
+    await notifyProfilesChanged()
+    return this.home()
+  }
+
+  async exportProfile(profileId: string): Promise<string> {
+    const profile = await getStored<MappingProfile>("transfer_mapping_profiles", profileId)
+    if (!profile) throw new Error("Mapping Profile is unavailable")
+    return exportMappingProfile(profile)
+  }
+
+  async importProfile(content: string): Promise<PersonalHomeData> {
+    const profile = importMappingProfile(content, chrome.runtime.getManifest().version)
+    await putStored("transfer_mapping_profiles", profile)
     await notifyProfilesChanged()
     return this.home()
   }

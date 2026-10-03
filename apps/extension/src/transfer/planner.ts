@@ -31,12 +31,12 @@ export async function snapshot(observation: Observation, group = ""): Promise<Sn
     reusable: field.templateStable && field.instanceStable && counts.get(field.templateKey) === 1,
   }))
   return { ...observation, fields, group, id: crypto.randomUUID(), capturedAt: new Date().toISOString(),
-    availableGroups: [...new Set(observation.fields.map((f) => f.group))].filter(Boolean),
+    availableGroups: observation.groups?.map((group) => group.name).filter(Boolean) ?? [...new Set(observation.fields.map((f) => f.group))].filter(Boolean),
     hash: await hash({ identity: observation.identity, template: observation.template, fields, group }) }
 }
 function convert(source: Field, target: Field, decision?: Decision): Value | undefined {
   if (source.value === null || source.value === "") return undefined
-  if (target.type === "checkbox") return typeof source.value === "boolean" ? source.value : undefined
+  if ((target.semanticType === "boolean" || target.type === "checkbox")) return typeof source.value === "boolean" ? source.value : undefined
   if (typeof source.value === "boolean") return undefined
   if (target.options.length) {
     if (decision?.option !== undefined) return target.options.find((o) => o.value === decision.option)?.value
@@ -50,7 +50,7 @@ function convert(source: Field, target: Field, decision?: Decision): Value | und
   if (["date", "number"].includes(source.type) && target.type !== source.type && target.type !== "text") return undefined
   return source.value.trim()
 }
-export function planTransfer(source: Snapshot, target: Observation, decisions: Record<string, Decision>, version: number): Plan {
+export function planTransfer(source: Snapshot, target: Observation, decisions: Record<string, Decision>, version: number, profileOnly = false): Plan {
   const actions: Action[] = target.fields.map((field) => {
     const decision = decisions[field.instanceKey]
     const labelCandidates = source.fields.filter((s) => equivalentLabel(s.label, field.label))
@@ -58,10 +58,12 @@ export function planTransfer(source: Snapshot, target: Observation, decisions: R
     const candidates = groupedCandidates.length === 1 ? groupedCandidates : labelCandidates
     const unambiguousTarget = target.fields.filter((f) => equivalentLabel(f.label, field.label)).length === 1
     const candidate = decision?.sourceInstanceKey ? source.fields.find((s) => s.instanceKey === decision.sourceInstanceKey) :
-      candidates.length === 1 && field.reusable && candidates[0].reusable && unambiguousTarget ? candidates[0] : undefined
+      !profileOnly && candidates.length === 1 && field.reusable && candidates[0].reusable && unambiguousTarget ? candidates[0] : undefined
     const action: Action = { id: crypto.randomUUID(), field, before: field.value, expected: null,
       sourceInstanceKey: candidate?.instanceKey,
       status: "unmapped", reason: "Choose a source field" }
+    if (profileOnly && !decision) return { ...action, status: "unmapped", reason: "Field is not mapped in this profile" }
+    if (decision?.blockReason) return { ...action, status: "unmapped", reason: decision.blockReason }
     if (decision?.mode === "skip") return { ...action, status: "skipped", reason: "Skipped for this batch" }
     if (decision?.mode === "preserve") return { ...action, status: "preserved_existing", reason: "Keep current value" }
     if (!field.instanceStable) return { ...action, status: "unsupported", reason: "Repeated target field has no stable instance identity" }
@@ -81,6 +83,6 @@ export function planTransfer(source: Snapshot, target: Observation, decisions: R
     }
     return { ...action, status: "ready", reason: "Ready to fill" }
   })
-  return { id: crypto.randomUUID(), version, snapshotHash: source.hash, epoch: target.epoch,
+  return { id: crypto.randomUUID(), version, snapshotHash: source.hash, selectedGroups: target.selectedGroups, epoch: target.epoch,
     identity: target.identity, template: target.template, structure: target.structure, recordValues: target.recordValues, actions }
 }

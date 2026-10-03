@@ -1,3 +1,4 @@
+import { driftReport, fieldTemplates, hasBaselineOverlap } from "./profile-drift"
 import { removeHostPermissionIfUnused } from "../personal/permissions/host-permissions"
 import { configuredBuiltinApiOrigins } from "../personal/ai/direct-api-provider"
 import { hash, planTransfer, snapshot, successful } from "./planner"
@@ -64,8 +65,9 @@ async function page(s: Session, tabId: number, targetId: string, operation: Page
     reply.envelope.targetId !== targetId || (request.documentEpoch && reply.envelope.documentEpoch !== request.documentEpoch)) throw new Error("Page response identity mismatch")
   return reply
 }
-async function observe(s: Session, tabId: number, targetId: string): Promise<Observation> {
-  const reply = await page(s, tabId, targetId, "observe")
+async function observe(s: Session, tabId: number, targetId: string, selectedGroups?: string[]): Promise<Observation> {
+  selectedGroups ??= targetId.startsWith("source") ? s.source?.selectedGroups : s.targets.find((target) => target.id === targetId)?.observation?.selectedGroups
+  const reply = await page(s, tabId, targetId, "observe", { selectedGroups })
   if (!reply.observation) throw new Error("Page observation is unavailable")
   return reply.observation
 }
@@ -83,6 +85,8 @@ async function prepareTarget(s: Session, t: Target) {
     if (siteOrigin(tab.url ?? "") !== t.origin) throw new Error("Target navigated to another website. Open the intended form and resume.")
     if (tab.status !== "complete") throw new Error("Waiting for page load; resume when the form is ready")
     const observation = await observe(s, t.tabId, t.id)
+    if (s.mappingProfileId && t.observation && observation.template !== t.observation.template) throw new Error("Target structure changed. Prepare the profile again to review drift.")
+    if (s.profileDrift && t.observation && observation.structure !== t.observation.structure) throw new Error("Target changed during drift review. Prepare the profile again.")
     t.observation = observation
     t.title = observation.title
     if (observation.blockedReason) throw new Error(observation.blockedReason)
@@ -92,7 +96,7 @@ async function prepareTarget(s: Session, t: Target) {
     }
     if (!observation.fields.length) throw new Error("Please log in or open the form, then resume this target")
     if (!s.source) throw new Error("Select a source first")
-    t.plan = planTransfer(s.source, observation, t.decisions, s.revision)
+    t.plan = planTransfer(s.source, observation, t.decisions, s.revision, Boolean(s.mappingProfileId))
     t.status = t.plan.actions.some((a) => a.status === "ready") ? "ready" : "needs_input"
     t.error = undefined
   } catch (error) { t.status = "waiting_user"; t.error = error instanceof Error ? error.message : "Unable to prepare target" }
@@ -105,6 +109,8 @@ function profilePage(observation: Observation, rawUrl: string): ProfilePageTempl
     origin: observation.origin,
     pathPattern,
     template: observation.template,
+    fields: fieldTemplates(observation),
+    selectedGroups: observation.selectedGroups,
     title: title.trim() || `${new URL(observation.origin).hostname}${pathPattern}`,
   }
 }
@@ -113,12 +119,16 @@ function pageOriginMatches(tab: chrome.tabs.Tab, template: ProfilePageTemplate):
   const url = new URL(tab.url)
   return url.origin === template.origin
 }
-function decisionsFromProfile(source: Snapshot, observation: Observation, configured: ProfileFieldMapping[]) {
+function decisionsFromProfile(source: Snapshot, observation: Observation, configured: ProfileFieldMapping[], blockedSourceKeys: string[] = [], blockedTargetKeys: string[] = []) {
   const decisions: Target["decisions"] = {}
   for (const mapping of configured) {
     const sourceFields = source.fields.filter((field) => field.templateKey === mapping.sourceTemplateKey)
     const targetFields = observation.fields.filter((field) => field.templateKey === mapping.targetTemplateKey)
-    if (targetFields.length !== 1 || (mapping.existingValuePolicy !== "skip" && sourceFields.length !== 1)) continue
+    if (targetFields.length !== 1 || (mapping.existingValuePolicy !== "skip" &&
+      (sourceFields.length !== 1 || blockedSourceKeys.includes(mapping.sourceTemplateKey) || blockedTargetKeys.includes(mapping.targetTemplateKey)))) {
+      for (const field of targetFields) decisions[field.instanceKey] = { blockReason: "Profile mapping changed or is ambiguous; review and save a new revision" }
+      continue
+    }
     const targetField = targetFields[0]
     const sourceField = sourceFields[0]
     decisions[targetField.instanceKey] = {
@@ -134,11 +144,15 @@ async function saveMappingProfile(s: Session, command: Extract<Command, { type: 
   if (!command.name.trim()) throw new Error("Enter a Mapping Profile name")
   const existing = command.profileId ? (await profiles()).find((profile) => profile.id === command.profileId) : undefined
   const sourceTab = await chrome.tabs.get(s.sourceTabId)
+  const freshSource = await observe(s, s.sourceTabId, "source-save")
+  if (freshSource.epoch !== s.source.epoch || freshSource.identity !== s.source.identity || freshSource.template !== s.source.template || freshSource.structure !== s.source.structure) throw new Error("Source changed before saving. Prepare the profile again.")
   const targets: ProfileTargetTemplate[] = []
   for (const configuredTarget of command.targets) {
     const target = s.targets.find((candidate) => candidate.id === configuredTarget.targetId)
     if (!target?.observation) throw new Error("Prepare every selected target before saving the profile")
     const targetTab = await chrome.tabs.get(target.tabId)
+    const freshTarget = await observe(s, target.tabId, target.id)
+    if (freshTarget.epoch !== target.observation.epoch || freshTarget.identity !== target.observation.identity || freshTarget.template !== target.observation.template || freshTarget.structure !== target.observation.structure) throw new Error("Target changed before saving. Prepare the profile again.")
     const configuredMappings: ProfileFieldMapping[] = configuredTarget.mappings.map((configured) => {
       const targetField = target.observation!.fields.find((field) => field.instanceKey === configured.targetInstanceKey)
       const sourceField = configured.sourceInstanceKey ? s.source!.fields.find((field) => field.instanceKey === configured.sourceInstanceKey) : undefined
@@ -163,7 +177,8 @@ async function saveMappingProfile(s: Session, command: Extract<Command, { type: 
     id: existing?.id ?? crypto.randomUUID(),
     name: command.name.trim(),
     kind: command.kind ?? existing?.kind ?? "profile",
-    version: 1,
+    version: 2,
+    revision: (existing?.revision ?? (existing ? 1 : 0)) + 1,
     source: profilePage(s.source, sourceTab.url ?? ""),
     targets,
     createdAt: existing?.createdAt ?? now,
@@ -172,14 +187,21 @@ async function saveMappingProfile(s: Session, command: Extract<Command, { type: 
   await notifyProfilesChanged()
   return saved
 }
+async function profileCandidates(s: Session, tabs: chrome.tabs.Tab[], baseline: ProfilePageTemplate, id: string) {
+  const candidates: { tab: chrome.tabs.Tab; observation: Observation }[] = []
+  for (const tab of tabs.filter((candidate) => pageOriginMatches(candidate, baseline))) {
+    const observation = await observe(s, tab.id!, id, baseline.selectedGroups).catch(() => undefined)
+    if (observation && !observation.blockedReason) candidates.push({ tab, observation })
+  }
+  const exact = candidates.filter(({ observation }) => observation.template === baseline.template)
+  if (exact.length) return exact
+  return candidates.filter(({ tab, observation }) => pagePathPattern(tab.url!) === baseline.pathPattern
+    && profilePage(observation, tab.url!).title === baseline.title && hasBaselineOverlap(baseline, observation))
+}
 async function useMappingProfile(profile: MappingProfile, includeAllTargetInstances = true): Promise<Session> {
   const s: Session = { id: crypto.randomUUID(), revision: 0, status: "draft", frozen: false, targets: [], mappingProfileId: profile.id }
   const openTabs = (await chrome.tabs.query({})).filter((tab) => tab.id && tab.url && /^https?:/.test(tab.url))
-  let sourceMatches: { tab: chrome.tabs.Tab; observation: Observation }[] = []
-  for (const tab of openTabs.filter((candidate) => pageOriginMatches(candidate, profile.source))) {
-    const observation = await observe(s, tab.id!, "source-profile-match").catch(() => undefined)
-    if (observation?.template === profile.source.template) sourceMatches.push({ tab, observation })
-  }
+  let sourceMatches = await profileCandidates(s, openTabs, profile.source, "source-profile-match")
   const sourceTitleMatches = sourceMatches.filter((match) => profilePage(match.observation, match.tab.url ?? "").title === profile.source.title)
   if (sourceTitleMatches.length) sourceMatches = sourceTitleMatches
   const preferredSources = sourceMatches.filter((match) => pagePathPattern(match.tab.url!) === profile.source.pathPattern)
@@ -191,36 +213,42 @@ async function useMappingProfile(profile: MappingProfile, includeAllTargetInstan
   s.sourceTabId = sourceMatch.tab.id
   s.source = await snapshot(sourceMatch.observation)
   s.confirmedSourceIdentity = s.source.pageIdentity
+  const sourceReport = driftReport(profile.source, s.source, profile.targets.flatMap((target) =>
+    target.mappings.filter((mapping) => mapping.existingValuePolicy !== "skip").map((mapping) => mapping.sourceTemplateKey)), "source")
+  const reports: import("./types").ProfileDriftReport[] = []
+  if (sourceMatch.observation.template !== profile.source.template) reports.push(sourceReport)
   const usedTabs = new Set<number>([s.sourceTabId!])
   for (const targetTemplate of profile.targets) {
-    let matches: { tab: chrome.tabs.Tab; observation: Observation }[] = []
-    for (const tab of openTabs.filter((candidate) => !usedTabs.has(candidate.id!) && pageOriginMatches(candidate, targetTemplate))) {
-      const observation = await observe(s, tab.id!, targetTemplate.id).catch(() => undefined)
-      if (observation?.template === targetTemplate.template) matches.push({ tab, observation })
-    }
+    let matches = await profileCandidates(s, openTabs.filter((tab) => !usedTabs.has(tab.id!)), targetTemplate, targetTemplate.id)
     const titleMatches = matches.filter((match) => profilePage(match.observation, match.tab.url ?? "").title === targetTemplate.title)
     if (titleMatches.length) matches = titleMatches
     const preferredTargets = matches.filter((match) => pagePathPattern(match.tab.url!) === targetTemplate.pathPattern)
     if (preferredTargets.length) matches = preferredTargets
     if (!matches.length) throw new Error(`Open the target page: ${targetTemplate.title}`)
+    if (!includeAllTargetInstances && matches.length > 1 && matches.some((match) => match.observation.template !== targetTemplate.template)) throw new Error("Several changed target pages match. Keep only the intended target open before reviewing drift.")
     for (const match of includeAllTargetInstances ? matches : matches.slice(0, 1)) {
       usedTabs.add(match.tab.id!)
+      const targetId = crypto.randomUUID()
+      const targetReport = driftReport(targetTemplate, match.observation,
+        targetTemplate.mappings.filter((mapping) => mapping.existingValuePolicy !== "skip").map((mapping) => mapping.targetTemplateKey), "target", targetId)
+      if (match.observation.template !== targetTemplate.template) reports.push(targetReport)
       const target: Target = {
-        id: crypto.randomUUID(),
+        id: targetId,
         tabId: match.tab.id!,
         windowId: match.tab.windowId,
         origin: match.observation.origin,
         title: match.observation.title,
         status: "preparing",
         observation: match.observation,
-        decisions: decisionsFromProfile(s.source, match.observation, targetTemplate.mappings),
+        decisions: decisionsFromProfile(s.source, match.observation, targetTemplate.mappings, sourceReport.blockedKeys, targetReport.blockedKeys),
         confirmedIdentity: match.observation.identityConfidence === "uncertain" ? match.observation.pageIdentity : undefined,
       }
-      target.plan = planTransfer(s.source, match.observation, target.decisions, s.revision)
+      target.plan = planTransfer(s.source, match.observation, target.decisions, s.revision, Boolean(s.mappingProfileId))
       target.status = target.plan.actions.some((action) => action.status === "ready") ? "ready" : "needs_input"
       s.targets.push(target)
     }
   }
+  if (reports.length) s.profileDrift = { reviewed: false, reports }
   aggregate(s)
   return s
 }
@@ -259,7 +287,7 @@ async function executeTarget(s: Session, t: Target) {
         }
         if (refreshed.structure !== plan.structure) {
           const completed = new Map(plan.actions.filter((item) => successful(item.status)).map((item) => [item.field.instanceKey, item]))
-          const replanned = planTransfer(s.source!, refreshed, t.decisions, s.revision)
+          const replanned = planTransfer(s.source!, refreshed, t.decisions, s.revision, Boolean(s.mappingProfileId))
           replanned.actions = replanned.actions.map((item) => completed.get(item.field.instanceKey) ?? item)
           t.observation = refreshed
           t.plan = replanned
@@ -358,7 +386,7 @@ export async function transferCommand(command: Command): Promise<unknown> {
             before: targetField.value,
           }
         }
-        target.plan = planTransfer(s.source, target.observation, target.decisions, s.revision)
+        target.plan = planTransfer(s.source, target.observation, target.decisions, s.revision, Boolean(s.mappingProfileId))
         target.status = target.plan.actions.some((action) => action.status === "ready") ? "ready" : "needs_input"
       }
       aggregate(s); await persist(s); return s
@@ -370,10 +398,25 @@ export async function transferCommand(command: Command): Promise<unknown> {
       await persist(current)
       return current
     }
+    if (command.type === "APPROVE_PROFILE_DRIFT") {
+      if (!s.profileDrift || !s.source || s.sourceTabId === undefined) throw new Error("No Profile Drift is awaiting review")
+      const bindings = [{ tabId: s.sourceTabId, id: "source", observation: s.source },
+        ...s.targets.map((target) => ({ tabId: target.tabId, id: target.id, observation: target.observation! }))]
+      for (const binding of bindings) {
+        const fresh = await observe(s, binding.tabId, binding.id)
+        const old = binding.observation
+        if (fresh.epoch !== old.epoch || fresh.identity !== old.identity || fresh.template !== old.template || fresh.structure !== old.structure) {
+          throw new Error("Page changed during drift review. Prepare the profile again.")
+        }
+      }
+      s.profileDrift.reviewed = true
+      await persist(s)
+      return s
+    }
     if (command.type === "SET_SOURCE") {
       if (s.frozen) throw new Error("Start a new batch to use updated source data")
       if (s.targets.some((t) => t.tabId === command.tabId)) throw new Error("Source cannot also be a target")
-      const observation = await observe(s, command.tabId, "source")
+      const observation = await observe(s, command.tabId, "source", command.group ? [command.group] : [])
       s.sourceTabId = command.tabId; s.source = await snapshot(observation, command.group)
       s.sourceChanged = false
       s.confirmedSourceIdentity = s.source.pageIdentity
@@ -395,6 +438,13 @@ export async function transferCommand(command: Command): Promise<unknown> {
           title: tab.title || "New page", status: "preparing", decisions: {} })
       }
     }
+    if (command.type === "SET_TARGET_GROUPS") {
+      if (s.frozen || s.mappingProfileId) throw new Error("Select sections while creating a new Profile")
+      const target = s.targets.find((candidate) => candidate.id === command.targetId)
+      if (!target) throw new Error("Target is unavailable")
+      target.observation = await observe(s, target.tabId, target.id, command.groups)
+      target.decisions = {}; target.plan = undefined
+    }
     if (command.type === "REMOVE_TARGET") {
       if (s.frozen) throw new Error("Frozen batches cannot add or remove targets")
       s.targets = s.targets.filter((t) => t.id !== command.targetId)
@@ -407,6 +457,7 @@ export async function transferCommand(command: Command): Promise<unknown> {
       aggregate(s); await persist(s); return s
     }
     if (command.type === "RUN_TRANSFER") {
+      if (s.profileDrift && !s.profileDrift.reviewed) throw new Error("Review and approve Profile Drift before filling")
       if (!s.mappingProfileId) throw new Error("Select a Mapping Profile before filling")
       if (!s.source || s.sourceTabId === undefined) throw new Error("Select a source page")
       if (s.source.identityConfidence === "uncertain" && s.confirmedSourceIdentity !== s.source.pageIdentity) throw new Error("Confirm the source record identity before filling")
@@ -422,7 +473,7 @@ export async function transferCommand(command: Command): Promise<unknown> {
         s.source = fresh
         s.sourceChanged = false
         for (const target of s.targets) if (target.observation && target.plan && ["ready", "needs_input"].includes(target.status)) {
-          target.plan = planTransfer(fresh, target.observation, target.decisions, s.revision)
+          target.plan = planTransfer(fresh, target.observation, target.decisions, s.revision, Boolean(s.mappingProfileId))
           target.status = "ready"
         }
       }
