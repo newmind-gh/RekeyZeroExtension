@@ -2,6 +2,8 @@
 
 ## Unreleased — 0.3.0
 
+- Remove retired build-variant runtime wiring and keep only the Personal build and release configuration.
+
 - Extract bounded deterministic control adapters with semantic control descriptions and guarded exact-option selection.
 - Support conservative ARIA single-select listboxes, open Shadow DOM, and non-sandboxed same-origin iframes.
 - Add source/target section observation for large forms while retaining the 120-control limit.

@@ -10,11 +10,11 @@
 
 RekeyZero is an open-source Chromium extension for safely reusing information from one open web page across one or more target pages. Create reusable Mapping Profiles, fill supported controls through a guarded deterministic executor, review the result, and submit manually.
 
-AI is optional. When enabled, it can propose field relationships, but it does not control the browser, execute arbitrary JavaScript or selectors, or submit forms for you.
+RekeyZero provides **AI mapping** and **non-AI mapping**. AI mapping proposes semantic relationships between source and target fields for your review; non-AI mapping lets you define those relationships directly. Both produce reusable Profiles for guarded filling.
 
 [Try the synthetic live demo](https://newmind-gh.github.io/RekeyZeroExtension/) · [Watch the actual extension walkthrough](https://newmind-gh.github.io/RekeyZeroExtension/walkthrough.webm)
 
-The demo uses synthetic records and the real extension. AI matching is optional; the recorded walkthrough uses a manually reviewed Profile. Demo Submit opens a local preview only.
+The demo uses synthetic records and the real extension. The recorded walkthrough demonstrates non-AI mapping with a manually reviewed Profile. Demo Submit opens a local preview only.
 
 ![RekeyZero Personal Side Panel showing a saved AI ZeroKey Profile with validated field matches](docs/images/rekeyzero-ai-profile-saved.png)
 
@@ -29,9 +29,9 @@ Source web app
      ▼
 Mapping Profile
      │
-     ├── map fields manually
+     ├── AI mapping: review proposed field relationships
      │        or
-     └── let AI propose field relationships
+     └── non-AI mapping: define field relationships directly
               │
               ▼
      deterministic validation
@@ -61,7 +61,7 @@ The profile stores page and field identities plus mapping policy. It does **not*
 
 ### Deterministic execution
 
-AI can help determine which fields correspond to each other, but accepted mappings are executed by the same guarded, deterministic fill engine used by non-AI profiles.
+AI mapping matches fields by their business meaning. Reviewed AI mappings and manually defined non-AI mappings use the same guarded, deterministic fill engine.
 
 RekeyZero does not execute arbitrary model-generated JavaScript or selectors, does not perform unattended navigation, and does not perform final submission.
 
@@ -79,9 +79,9 @@ Stale or changed page state invalidates prepared actions, and unsupported or amb
 
 RekeyZero does not require a RekeyZero backend. Durable product state is kept in browser IndexedDB. Active transfer batches and API keys use extension session storage.
 
-### AI is optional
+### AI and non-AI mapping
 
-Use **ZeroKey Profile** for fully manual field mapping, or **AI ZeroKey Profile** to ask a model to propose field relationships.
+Use **AI ZeroKey Profile** for AI-generated field matches that you review and save. Use **ZeroKey Profile** to define field mappings manually. Both are core mapping workflows that create reusable Profiles.
 
 AI matching receives field labels, control types, groups, and accepted options. It does not receive current source-field values.
 
@@ -148,7 +148,7 @@ Try the [synthetic marketplace Profile](examples/profiles/synthetic-marketplace.
 
 ## Product screenshots
 
-RekeyZero supports both **non-AI** and **AI-enabled** workflows. Use **ZeroKey Profile** when you do not want to use AI and prefer to map fields manually. Use **AI ZeroKey Profile** when you want AI to propose field matches; the accepted mappings still use the same guarded, deterministic fill executor.
+RekeyZero provides **AI mapping** through **AI ZeroKey Profile** and **non-AI mapping** through **ZeroKey Profile**. Review and save AI-proposed field matches, or define mappings manually. Both workflows use the same guarded, deterministic fill executor.
 
 ### Side Panel profiles
 
@@ -242,14 +242,6 @@ examples/profiles/       Value-free synthetic portable Profiles
 ```
 
 This repository contains the extension and synthetic test portals. Legacy web and platform packages have been removed. Generated `dist/` files are ignored by Git and distributed through Actions artifacts and Releases.
-
-## Deterministic Control Adapters (v0.3.0)
-
-The execution layer separates DOM traversal, control adapters, and the existing safety guards. The ordered registry provides native input, textarea, select, checkbox and grouped-radio adapters, the explicit RekeyZero listbox adapter, and a conservative generic ARIA listbox adapter. Adapters expose semantic types such as `boolean`, `single_select`, and `single_choice`; native `type` metadata remains compatible with saved Profiles. They may read and write only an observed control and its uniquely owned `aria-controls` listbox. They cannot navigate, submit, upload, or execute model-generated actions.
-
-Observation never opens a popup to discover options. A generic ARIA popup must already exist with a complete, unique option list; if it mounts dynamically, open it manually and prepare again. Writes recheck page/record identity, structure, before value and options after opening the popup and before selecting an exact option, then verify the actual read-back. Framework-specific adapters require evidence from real portal fixtures; the synthetic React portal demonstrates the explicit bounded contract rather than claiming universal MUI or React Select compatibility.
-
-The synthetic portal is exported from the same fixtures used by browser tests. `node tests/extension-portal/build-demo.mjs` creates ignored `dist/demo/`; `node tests/extension-portal/record-demo.mjs` records the actual unpacked extension. The `Synthetic demo` workflow validates both and deploys to GitHub Pages on main. Repository Settings → Pages must use **GitHub Actions**. Generated demo and recording files are Actions artifacts, not committed binaries.
 
 ## Current limitations
 

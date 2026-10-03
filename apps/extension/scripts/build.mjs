@@ -6,7 +6,6 @@ import process from "node:process"
 
 const root = resolve(import.meta.dirname, "..")
 const build = {
-  profile: "personal",
   localAiFamily: "local",
   webLlmVersion: "0.2.82",
   outputName: "rekeyzero-personal",
@@ -23,7 +22,6 @@ const webLlmPackageRoot = resolveWebLlmPackageRoot(build.webLlmVersion)
 const environment = {
   ...process.env,
   REKEYZERO_EXTENSION_OUTPUT_DIRECTORY: staging,
-  REKEYZERO_BUILD_VARIANT: build.profile,
   REKEYZERO_LOCAL_AI_FAMILY: build.localAiFamily,
   REKEYZERO_WEBLLM_VERSION: build.webLlmVersion,
   REKEYZERO_WEBLLM_RUNTIME_ENTRY: join(webLlmPackageRoot, "lib", "index.js"),
@@ -37,12 +35,12 @@ try {
     env: environment,
     stdio: "inherit",
   })
-  execFileSync(node, [join(root, "node_modules", "vite", "bin", "vite.js"), "build", "--mode", build.profile], {
+  execFileSync(node, [join(root, "node_modules", "vite", "bin", "vite.js"), "build", "--mode", "personal"], {
     cwd: root,
     env: environment,
     stdio: "inherit",
   })
-  execFileSync(node, [join(root, "node_modules", "vite", "bin", "vite.js"), "build", "--mode", build.profile, "--config", "vite.content.config.ts"], {
+  execFileSync(node, [join(root, "node_modules", "vite", "bin", "vite.js"), "build", "--mode", "personal", "--config", "vite.content.config.ts"], {
     cwd: root,
     env: environment,
     stdio: "inherit",

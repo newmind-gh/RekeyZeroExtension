@@ -1,4 +1,4 @@
-import { personalAdmin } from "@rekeyzero/active-runtime"
+import { PersonalAdminService } from "../personal/core/personal-admin-service"
 
 import { matchFieldsWithBuiltinApi } from "../personal/ai/builtin-api-field-matcher"
 import {
@@ -23,10 +23,7 @@ const LEGACY_API_MODEL_IDS: Record<string, string> = {
   "personal-deepseek-v41-flash-v1": "personal-deepseek-api-v1",
   "personal-deepseek-v4-flash-v1": "personal-deepseek-api-v1",
 }
-function admin() {
-  if (!personalAdmin) throw new Error("Workspace administration is unavailable in this build")
-  return personalAdmin
-}
+const personalAdmin = new PersonalAdminService()
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "RekeyZero could not complete this browser action"
@@ -36,7 +33,7 @@ async function reportRuntimeError(error: unknown, requestType: string): Promise<
   const apiModelId = await selectedApiModelId().catch(() => null)
   const apiModel = BUILTIN_API_MODELS.find((model) => model.id === apiModelId)
   const apiConfig = apiModel ? await builtinApiModelConfig(apiModel.id).catch(() => null) : null
-  const localSettings = apiModel ? null : await admin().aiSettings().catch(() => null)
+  const localSettings = apiModel ? null : await personalAdmin.aiSettings().catch(() => null)
   const context = apiModel
     ? { providerId: apiModel.provider, modelId: apiConfig?.model ?? "not-configured" }
     : localSettings?.localModelEnabled && localSettings.localModelId
@@ -75,7 +72,7 @@ async function selectedApiModelId(): Promise<string | null> {
 }
 
 async function aiSettingsView(base?: PersonalAiSettingsView): Promise<PersonalAiSettingsView> {
-  const current = base ?? await admin().aiSettings()
+  const current = base ?? await personalAdmin.aiSettings()
   const apiModelId = await selectedApiModelId()
   const configs = new Map(await Promise.all(BUILTIN_API_MODELS.map(async (model) => [model.id, await builtinApiModelConfig(model.id)] as const)))
   const health = new Map(await Promise.all(BUILTIN_API_MODELS.map(async (model) => [model.id, await builtinApiHealth(model.id)] as const)))
@@ -135,22 +132,22 @@ async function aiSettingsView(base?: PersonalAiSettingsView): Promise<PersonalAi
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined)
 
 async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> {
-  if (request.type === "PERSONAL_EXPORT_PROFILE") return admin().exportProfile(request.profileId)
-  if (request.type === "PERSONAL_IMPORT_PROFILE") return admin().importProfile(request.content)
-  if (request.type === "PERSONAL_GET_HOME") return admin().home()
+  if (request.type === "PERSONAL_EXPORT_PROFILE") return personalAdmin.exportProfile(request.profileId)
+  if (request.type === "PERSONAL_IMPORT_PROFILE") return personalAdmin.importProfile(request.content)
+  if (request.type === "PERSONAL_GET_HOME") return personalAdmin.home()
   if (request.type === "PERSONAL_SAVE_PROFILE") {
-    const result = await admin().saveProfile(request.profile)
+    const result = await personalAdmin.saveProfile(request.profile)
     await resetTransferRuntime()
     return result
   }
   if (request.type === "PERSONAL_DELETE_PROFILE") {
-    const result = await admin().deleteProfile(request.profileId)
+    const result = await personalAdmin.deleteProfile(request.profileId)
     await resetTransferRuntime()
     return result
   }
   if (request.type === "PERSONAL_CLEAR_ALL") {
     await resetTransferRuntime()
-    await admin().clearAll()
+    await personalAdmin.clearAll()
     await clearBuiltinApiModels()
     await chrome.permissions.remove({
       origins: BUILTIN_API_MODELS.map((model) => `${model.origin}/*`),
@@ -159,20 +156,20 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
     await chrome.storage.local.remove(API_MODEL_STORAGE_KEY)
     return null
   }
-  if (request.type === "PERSONAL_EXPORT") return admin().exportData()
-  if (request.type === "PERSONAL_EXPORT_RECOVERY") return admin().exportRecoveryData()
-  if (request.type === "PERSONAL_EXPORT_DIAGNOSTICS") return admin().exportDiagnostics()
+  if (request.type === "PERSONAL_EXPORT") return personalAdmin.exportData()
+  if (request.type === "PERSONAL_EXPORT_RECOVERY") return personalAdmin.exportRecoveryData()
+  if (request.type === "PERSONAL_EXPORT_DIAGNOSTICS") return personalAdmin.exportDiagnostics()
   if (request.type === "PERSONAL_GET_AI_SETTINGS") return aiSettingsView()
-  if (request.type === "PERSONAL_GET_LLM_LOGS") return admin().llmLogs()
+  if (request.type === "PERSONAL_GET_LLM_LOGS") return personalAdmin.llmLogs()
   if (request.type === "PERSONAL_SET_LOCAL_AI_ENABLED") {
     if (isBuiltinApiModel(request.modelId)) {
       if (request.enabled) {
         const model = BUILTIN_API_MODELS.find((candidate) => candidate.id === request.modelId)!
         const health = await builtinApiHealth(model.id)
         if (health.status !== "ready") throw new Error(health.detail || "Enter the API key in the extension UI")
-        const current = await admin().aiSettings()
+        const current = await personalAdmin.aiSettings()
         if (current.localModelId && current.localModelEnabled) {
-          await admin().setLocalAiEnabled(false, current.localModelId)
+          await personalAdmin.setLocalAiEnabled(false, current.localModelId)
         }
         await chrome.storage.local.set({ [API_MODEL_STORAGE_KEY]: request.modelId })
       } else {
@@ -181,13 +178,13 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
       return aiSettingsView()
     }
     if (request.enabled) await chrome.storage.local.remove(API_MODEL_STORAGE_KEY)
-    return aiSettingsView(await admin().setLocalAiEnabled(request.enabled, request.modelId))
+    return aiSettingsView(await personalAdmin.setLocalAiEnabled(request.enabled, request.modelId))
   }
   if (request.type === "PERSONAL_CONFIGURE_API_MODEL") {
     await configureBuiltinApiModel(request)
-    const current = await admin().aiSettings()
+    const current = await personalAdmin.aiSettings()
     if (current.localModelId && current.localModelEnabled) {
-      await admin().setLocalAiEnabled(false, current.localModelId)
+      await personalAdmin.setLocalAiEnabled(false, current.localModelId)
     }
     await chrome.storage.local.set({ [API_MODEL_STORAGE_KEY]: request.modelId })
     return aiSettingsView()
@@ -272,7 +269,7 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
             allTargetControls: matchingControls,
             candidates,
           })
-        : await admin().matchLocalFields({
+        : await personalAdmin.matchLocalFields({
             target: target.title,
             controls,
             allTargetControls: matchingControls,

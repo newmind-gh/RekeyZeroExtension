@@ -23,7 +23,7 @@ function packageRoot(moduleId: string): string | null {
   return `${normalized.slice(0, markerAt + marker.length)}${packageSegments.join("/")}`
 }
 
-export function distributedDependencyMetadata(profile: string, buildPart: string): Plugin {
+export function distributedDependencyMetadata(buildPart: "application" | "content-script"): Plugin {
   return {
     name: `rekeyzero-distributed-dependencies-${buildPart}`,
     generateBundle(_options, bundle) {
@@ -66,7 +66,7 @@ export function distributedDependencyMetadata(profile: string, buildPart: string
         import.meta.dirname,
         "../..",
         "artifacts/extension-build-metadata",
-        `${profile}-${buildPart}.json`,
+        `personal-${buildPart}.json`,
       )
       mkdirSync(dirname(target), { recursive: true })
       writeFileSync(target, `${JSON.stringify(inventory, null, 2)}\n`)

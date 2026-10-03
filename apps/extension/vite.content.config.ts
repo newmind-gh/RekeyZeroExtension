@@ -6,13 +6,9 @@ import { extensionOutputDirectory } from "./build-output"
 import { distributedDependencyMetadata } from "./vite.distributed-metadata"
 
 export default defineConfig(() => {
-  const profile = "personal"
   const outputDirectory = extensionOutputDirectory()
   return {
-    define: {
-      __REKEYZERO_PROFILE__: JSON.stringify(profile),
-    },
-    plugins: [distributedDependencyMetadata(profile, "content-script")],
+    plugins: [distributedDependencyMetadata("content-script")],
     build: {
       outDir: outputDirectory,
       emptyOutDir: false,

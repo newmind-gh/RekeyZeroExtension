@@ -11,14 +11,13 @@ import {
 } from "./release-support.mjs"
 
 const root = resolve(import.meta.dirname, "..")
-const profile = "personal"
 if (process.argv.length > 2) {
   throw new Error("Release packaging does not accept dirty-build overrides")
 }
 
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
 const manifestSource = JSON.parse(
-  readFileSync(join(root, `manifest.${profile}.json`), "utf8"),
+  readFileSync(join(root, "manifest.personal.json"), "utf8"),
 )
 if (packageJson.version !== manifestSource.version) throw new Error("Package and extension versions must match")
 const commit = execFileSync("git", ["-c", `safe.directory=${resolve(root, "..", "..").replaceAll("\\", "/")}`, "rev-parse", "HEAD"], {
@@ -36,7 +35,7 @@ const repositoryRoot = resolve(root, "..", "..")
 const sourceSnapshotSha256 = hashSourceSnapshot(repositoryRoot)
 const sourceState = workingTreeStatus ? "snapshot" : "clean"
 const sourceIdentity = sourceState === "clean" ? shortCommit : `snapshot.${sourceSnapshotSha256.slice(0, 12)}`
-const artifactName = `rekeyzero-${profile}`
+const artifactName = "rekeyzero-personal"
 const releaseRoot = resolve(root, "..", "..", "dist")
 const staging = join(releaseRoot, artifactName)
 const zipPath = join(releaseRoot, `${artifactName}.zip`)
@@ -58,12 +57,12 @@ const lockfile = readFileSync(join(root, "package-lock.json"))
 const inventory = dependencyInventory(JSON.parse(lockfile.toString("utf8")))
 const buildMetadataRoot = resolve(root, "..", "..", "artifacts", "extension-build-metadata")
 const distributedInventory = mergeDistributedDependencyInventories([
-  JSON.parse(readFileSync(join(buildMetadataRoot, `${profile}-application.json`), "utf8")),
-  JSON.parse(readFileSync(join(buildMetadataRoot, `${profile}-content-script.json`), "utf8")),
+  JSON.parse(readFileSync(join(buildMetadataRoot, "personal-application.json"), "utf8")),
+  JSON.parse(readFileSync(join(buildMetadataRoot, "personal-content-script.json"), "utf8")),
 ])
 const report = {
   schema_version: 1,
-  product_profile: profile,
+  product_profile: "personal",
   semantic_version: version,
   git_commit: commit,
   source_state: sourceState,

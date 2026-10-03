@@ -8,18 +8,15 @@ import { extensionOutputDirectory } from "./build-output"
 import { distributedDependencyMetadata } from "./vite.distributed-metadata"
 
 export default defineConfig(() => {
-  const profile = "personal"
   const outputDirectory = extensionOutputDirectory()
   const localAiFamily = process.env.REKEYZERO_LOCAL_AI_FAMILY || "local"
   const webLlmRuntimeEntry = process.env.REKEYZERO_WEBLLM_RUNTIME_ENTRY
   return {
     define: {
-      __REKEYZERO_PROFILE__: JSON.stringify(profile),
       __REKEYZERO_LOCAL_AI_FAMILY__: JSON.stringify(localAiFamily),
     },
     resolve: {
       alias: {
-        "@rekeyzero/active-runtime": resolve(import.meta.dirname, "src/runtime/active-runtime.personal.ts"),
         ...(webLlmRuntimeEntry ? { "@mlc-ai/web-llm": webLlmRuntimeEntry } : {}),
       },
     },
@@ -28,13 +25,13 @@ export default defineConfig(() => {
     },
     plugins: [
       react(),
-      distributedDependencyMetadata(profile, "application"),
+      distributedDependencyMetadata("application"),
       {
         name: "copy-extension-manifest",
         closeBundle() {
           mkdirSync(outputDirectory, { recursive: true })
           copyFileSync(
-            resolve(import.meta.dirname, `manifest.${profile}.json`),
+            resolve(import.meta.dirname, "manifest.personal.json"),
             resolve(outputDirectory, "manifest.json"),
           )
         },
