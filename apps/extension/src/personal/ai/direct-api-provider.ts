@@ -7,12 +7,24 @@ import {
 // Direct provider credentials stay in protected extension storage and never enter repository files.
 import { extractJson } from "./model-provider"
 import type { ModelHealth, ModelRequest, ModelResult, PersonalModelProvider } from "./model-provider"
+import type { ModelTask } from "./model-provider"
+
+export type BuiltinApiModelOption = {
+  id: string
+  displayName: string
+  costTier: "free" | "lowest_cost" | "standard" | "premium"
+  recommended?: boolean
+}
 
 export type BuiltinApiModelDefinition = {
   id: string
   displayName: string
-  provider: "gemini" | "deepseek" | "openai"
+  provider: "gemini" | "deepseek" | "openai" | "anthropic"
+  protocol: "gemini" | "openai_compatible" | "anthropic"
+  supportedTasks: readonly ModelTask[]
   defaultModel: string
+  defaultReason: "free_tier" | "lowest_cost"
+  models: readonly BuiltinApiModelOption[]
   origin: string
 }
 
@@ -28,22 +40,61 @@ export const BUILTIN_API_MODELS: BuiltinApiModelDefinition[] = [
     id: "personal-gemini-api-v1",
     displayName: "Gemini",
     provider: "gemini",
-    defaultModel: "gemini-3.5-flash",
+    protocol: "gemini",
+    supportedTasks: ["field_match", "source_extract"],
+    defaultModel: "gemini-3.5-flash-lite",
+    defaultReason: "free_tier",
+    models: [
+      { id: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash-Lite", costTier: "free", recommended: true },
+      { id: "gemini-3.5-flash", displayName: "Gemini 3.5 Flash", costTier: "standard" },
+      { id: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash", costTier: "standard" },
+      { id: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", costTier: "standard" },
+    ],
     origin: "https://generativelanguage.googleapis.com",
+  },
+  {
+    id: "personal-gpt-api-v1",
+    displayName: "OpenAI",
+    provider: "openai",
+    protocol: "openai_compatible",
+    supportedTasks: ["field_match", "source_extract"],
+    defaultModel: "gpt-5.6-luna",
+    defaultReason: "lowest_cost",
+    models: [
+      { id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", costTier: "lowest_cost", recommended: true },
+      { id: "gpt-5.6-terra", displayName: "GPT-5.6 Terra", costTier: "standard" },
+      { id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol", costTier: "premium" },
+    ],
+    origin: "https://api.openai.com",
+  },
+  {
+    id: "personal-claude-api-v1",
+    displayName: "Claude",
+    provider: "anthropic",
+    protocol: "anthropic",
+    supportedTasks: ["field_match", "source_extract"],
+    defaultModel: "claude-haiku-4-5",
+    defaultReason: "lowest_cost",
+    models: [
+      { id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5", costTier: "lowest_cost", recommended: true },
+      { id: "claude-sonnet-5-5", displayName: "Claude Sonnet 5.5", costTier: "standard" },
+      { id: "claude-opus-5-5", displayName: "Claude Opus 5.5", costTier: "premium" },
+    ],
+    origin: "https://api.anthropic.com",
   },
   {
     id: "personal-deepseek-api-v1",
     displayName: "DeepSeek",
     provider: "deepseek",
-    defaultModel: "deepseek-v4-flash",
+    protocol: "openai_compatible",
+    supportedTasks: ["field_match", "source_extract"],
+    defaultModel: "deepseek-flash",
+    defaultReason: "lowest_cost",
+    models: [
+      { id: "deepseek-flash", displayName: "DeepSeek V4.1 Flash", costTier: "lowest_cost", recommended: true },
+      { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro", costTier: "premium" },
+    ],
     origin: "https://api.deepseek.com",
-  },
-  {
-    id: "personal-gpt-api-v1",
-    displayName: "GPT",
-    provider: "openai",
-    defaultModel: "gpt-5.6-terra",
-    origin: "https://api.openai.com",
   },
 ]
 
@@ -52,6 +103,20 @@ const API_CONFIG_STORAGE_KEY = "rekeyzeroPersonalApiModelConfigs"
 type StoredApiConfig = {
   model: string
   rememberKey: boolean
+}
+
+const LEGACY_PROVIDER_MODELS: Record<string, Record<string, string>> = {
+  "personal-deepseek-api-v1": {
+    "deepseek-v4-flash": "deepseek-flash",
+    "deepseek-v41-flash": "deepseek-flash",
+    "deepseek-v4-flash-vision-exp": "deepseek-flash",
+  },
+}
+
+function normalizeStoredModel(definition: BuiltinApiModelDefinition, model: string): string {
+  const trimmed = model.trim()
+  const migrated = LEGACY_PROVIDER_MODELS[definition.id]?.[trimmed] ?? trimmed
+  return definition.models.some((option) => option.id === migrated) ? migrated : definition.defaultModel
 }
 
 function validStoredConfig(value: unknown): value is StoredApiConfig {
@@ -68,9 +133,22 @@ async function storedConfigs(): Promise<Record<string, StoredApiConfig>> {
   const stored = await chrome.storage.local.get(API_CONFIG_STORAGE_KEY)
   const value = stored[API_CONFIG_STORAGE_KEY]
   if (!value || typeof value !== "object") return {}
-  return Object.fromEntries(
+  const configs = Object.fromEntries(
     Object.entries(value).filter((entry): entry is [string, StoredApiConfig] => validStoredConfig(entry[1])),
   )
+  let changed = false
+  for (const definition of BUILTIN_API_MODELS) {
+    const config = configs[definition.id]
+    if (!config) continue
+    const model = normalizeStoredModel(definition, config.model)
+    if (config.rememberKey) await getProviderKey(definition.id, definition.origin)
+    if (model !== config.model || config.rememberKey) {
+      configs[definition.id] = { model, rememberKey: false }
+      changed = true
+    }
+  }
+  if (changed) await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: configs })
+  return configs
 }
 
 export function builtinApiModel(modelId: string): BuiltinApiModelDefinition {
@@ -79,15 +157,16 @@ export function builtinApiModel(modelId: string): BuiltinApiModelDefinition {
   return model
 }
 
+export function builtinApiModelOption(definition: BuiltinApiModelDefinition, modelId: string): BuiltinApiModelOption {
+  const option = definition.models.find((model) => model.id === modelId)
+  if (!option) throw new Error(`Choose a supported ${definition.displayName} model`)
+  return option
+}
+
 export async function builtinApiModelConfig(modelId: string): Promise<BuiltinApiModelConfig> {
   const definition = builtinApiModel(modelId)
   const configs = await storedConfigs()
   const stored = configs[modelId]
-  if (stored?.rememberKey) {
-    await getProviderKey(definition.id, definition.origin)
-    stored.rememberKey = false
-    await chrome.storage.local.set({ [API_CONFIG_STORAGE_KEY]: configs })
-  }
   return {
     model: stored?.model ?? definition.defaultModel,
     rememberKey: false,
@@ -104,7 +183,7 @@ export async function configureBuiltinApiModel(input: {
 }): Promise<void> {
   const definition = builtinApiModel(input.modelId)
   const model = input.model.trim()
-  if (!model) throw new Error("Enter the provider model name")
+  builtinApiModelOption(definition, model)
   const apiKey = input.apiKey?.trim()
   if (apiKey) {
     await saveProviderKey(definition.id, definition.origin, apiKey)
@@ -158,6 +237,37 @@ function providerError(provider: string, status: number): Error {
   return new Error(`${provider} returned HTTP ${status}`)
 }
 
+// Claude accepts minItems only up to 1 and does not accept maxItems. The original
+// schema remains in the system instruction; matching validation stays unchanged.
+function anthropicSchema(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
+  const schema = { ...value as Record<string, unknown> }
+  if (schema.type === "array") {
+    const constraints: string[] = []
+    if (typeof schema.minItems === "number" && schema.minItems > 1) {
+      constraints.push(`At least ${schema.minItems} items.`)
+      schema.minItems = 1
+    }
+    if (typeof schema.maxItems === "number") {
+      constraints.push(`At most ${schema.maxItems} items.`)
+      delete schema.maxItems
+    }
+    if (constraints.length) schema.description = [schema.description, ...constraints].filter(Boolean).join(" ")
+  }
+  if (schema.type === "object" && schema.additionalProperties === undefined) schema.additionalProperties = false
+  for (const key of ["properties", "$defs", "definitions"]) {
+    const children = schema[key]
+    if (children && typeof children === "object" && !Array.isArray(children)) {
+      schema[key] = Object.fromEntries(Object.entries(children).map(([name, child]) => [name, anthropicSchema(child)]))
+    }
+  }
+  if (schema.items) schema.items = anthropicSchema(schema.items)
+  for (const key of ["anyOf", "allOf", "oneOf"]) {
+    if (Array.isArray(schema[key])) schema[key] = schema[key].map(anthropicSchema)
+  }
+  return schema
+}
+
 export class DirectApiProvider implements PersonalModelProvider {
   readonly kind = "external_api" as const
   readonly id: string
@@ -166,6 +276,7 @@ export class DirectApiProvider implements PersonalModelProvider {
     readonly definition: BuiltinApiModelDefinition,
     readonly configuredModel: string,
   ) {
+    builtinApiModelOption(definition, configuredModel)
     this.id = definition.id
   }
 
@@ -184,74 +295,109 @@ export class DirectApiProvider implements PersonalModelProvider {
     const input = typeof request.input === "string" ? request.input : JSON.stringify(request.input)
     const instructedSystem = `${system}${schemaInstruction(request)}`
 
-    if (this.definition.provider === "gemini") {
-      const response = await fetch(
-        `${this.definition.origin}/v1beta/models/${encodeURIComponent(this.configuredModel)}:generateContent`,
-        {
+    switch (this.definition.protocol) {
+      case "gemini": {
+        const response = await fetch(
+          `${this.definition.origin}/v1beta/models/${encodeURIComponent(this.configuredModel)}:generateContent`,
+          {
+            method: "POST",
+            signal,
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey,
+            },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: `System: ${instructedSystem}\n\nUser: ${input}` }] }],
+              generationConfig: {
+                temperature: 0,
+                maxOutputTokens: maxTokens,
+                responseMimeType: "application/json",
+              },
+            }),
+          },
+        )
+        if (!response.ok) throw providerError(this.definition.displayName, response.status)
+        const payload = await response.json() as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+        }
+        const content = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? ""
+        if (!content) throw new Error("Gemini returned no content")
+        return content
+      }
+
+      case "anthropic": {
+        const response = await fetch(`${this.definition.origin}/v1/messages`, {
           method: "POST",
           signal,
           headers: {
             "Content-Type": "application/json",
-            "x-goog-api-key": apiKey,
+            Authorization: `Bearer ${apiKey}`,
+            "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: `System: ${instructedSystem}\n\nUser: ${input}` }] }],
-            generationConfig: {
-              temperature: 0,
-              maxOutputTokens: maxTokens,
-              responseMimeType: "application/json",
-            },
+            model: this.configuredModel,
+            max_tokens: Math.max(maxTokens, 1024),
+            system: instructedSystem,
+            messages: [{ role: "user", content: input }],
+            ...(request.schema && typeof request.schema === "object" ? {
+              output_config: { format: { type: "json_schema", schema: anthropicSchema(request.schema) } },
+            } : {}),
           }),
-        },
-      )
-      if (!response.ok) throw providerError(this.definition.displayName, response.status)
-      const payload = await response.json() as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+        })
+        if (!response.ok) throw providerError(this.definition.displayName, response.status)
+        const payload = await response.json() as {
+          content?: Array<{ type?: string; text?: string }>
+          stop_reason?: string
+        }
+        const content = payload.content?.filter((block) => block.type === "text")
+          .map((block) => block.text ?? "").join("") ?? ""
+        if (!content) throw new Error(`Claude returned no content (stop reason: ${payload.stop_reason ?? "unknown"})`)
+        return content
       }
-      const content = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? ""
-      if (!content) throw new Error("Gemini returned no content")
-      return content
-    }
 
-    const response = await fetch(`${this.definition.origin}${this.definition.provider === "openai" ? "/v1" : ""}/chat/completions`, {
-      method: "POST",
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(this.definition.provider === "openai" ? {
-        model: this.configuredModel,
-        max_completion_tokens: Math.max(maxTokens, 1024),
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: instructedSystem },
-          { role: "user", content: input },
-        ],
-      } : {
-        model: this.configuredModel,
-        temperature: 0,
-        max_tokens: Math.max(maxTokens, 1024),
-        thinking: { type: "disabled" },
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: instructedSystem },
-          { role: "user", content: input },
-        ],
-      }),
-    })
-    if (!response.ok) throw providerError(this.definition.displayName, response.status)
-    const payload = await response.json() as {
-      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
+      case "openai_compatible": {
+        const response = await fetch(`${this.definition.origin}${this.definition.provider === "openai" ? "/v1" : ""}/chat/completions`, {
+          method: "POST",
+          signal,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(this.definition.provider === "openai" ? {
+            model: this.configuredModel,
+            max_completion_tokens: Math.max(maxTokens, 1024),
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: instructedSystem },
+              { role: "user", content: input },
+            ],
+          } : {
+            model: this.configuredModel,
+            temperature: 0,
+            max_tokens: Math.max(maxTokens, 1024),
+            thinking: { type: "disabled" },
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: instructedSystem },
+              { role: "user", content: input },
+            ],
+          }),
+        })
+        if (!response.ok) throw providerError(this.definition.displayName, response.status)
+        const payload = await response.json() as {
+          choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
+        }
+        const content = payload.choices?.[0]?.message?.content ?? ""
+        if (!content) {
+          throw new Error(`${this.definition.displayName} returned no content (finish reason: ${payload.choices?.[0]?.finish_reason ?? "unknown"})`)
+        }
+        return content
+      }
     }
-    const content = payload.choices?.[0]?.message?.content ?? ""
-    if (!content) {
-      throw new Error(`${this.definition.displayName} returned no content (finish reason: ${payload.choices?.[0]?.finish_reason ?? "unknown"})`)
-    }
-    return content
   }
 
   async completeJson<T>(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult<T>> {
+    if (!this.definition.supportedTasks.includes(request.task)) throw new Error("This model does not support this AI task")
     const rawResponses: string[] = []
     const initialMaxTokens = Math.max(request.maxTokens ?? 1024, 1024)
     let content = await this.requestCompletion(request, request.system, initialMaxTokens, signal)
@@ -271,6 +417,7 @@ export class DirectApiProvider implements PersonalModelProvider {
       try {
         output = extractJson<T>(content)
       } catch {
+        if (request.task === "source_extract") throw new Error("AI returned invalid extraction JSON twice")
         const preview = content.slice(0, 500).replace(/\s+/g, " ")
         throw new Error(`AI returned invalid JSON twice. Last response: ${preview}`)
       }

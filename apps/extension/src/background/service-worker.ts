@@ -3,6 +3,8 @@ import { PersonalAdminService } from "../personal/core/personal-admin-service"
 import { matchFieldsWithBuiltinApi } from "../personal/ai/builtin-api-field-matcher"
 import {
   BUILTIN_API_MODELS,
+  DirectApiProvider,
+  builtinApiModel,
   builtinApiHealth,
   builtinApiModelConfig,
   clearBuiltinApiModels,
@@ -14,6 +16,8 @@ import type { PersonalAiSettingsView } from "../shared/types"
 import { logPersonalRuntimeError } from "../personal/storage/runtime-error-log"
 import { invalidateTransferTab, resetTransferRuntime, transferCommand, transferTabReady } from "../transfer/controller"
 import type { Command as TransferCommand, Session } from "../transfer/types"
+import { localModel } from "../personal/ai/model-registry"
+import { clearSourcePrepare, getSourcePrepare, prepareSource, safePrepareError, showSourcePrepareEvidence, sourcePrepareEdited, undoSourcePrepare } from "../personal/source-prepare/source-prepare-service"
 
 const API_MODEL_STORAGE_KEY = "rekeyzeroPersonalApiModelId"
 const LEGACY_API_MODEL_IDS: Record<string, string> = {
@@ -30,6 +34,7 @@ function errorMessage(error: unknown): string {
 }
 
 async function reportRuntimeError(error: unknown, requestType: string): Promise<void> {
+  if (requestType.includes("PREPARE_SOURCE") || requestType === "PERSONAL_SHOW_PREPARE_EVIDENCE") return
   const apiModelId = await selectedApiModelId().catch(() => null)
   const apiModel = BUILTIN_API_MODELS.find((model) => model.id === apiModelId)
   const apiConfig = apiModel ? await builtinApiModelConfig(apiModel.id).catch(() => null) : null
@@ -89,6 +94,10 @@ async function aiSettingsView(base?: PersonalAiSettingsView): Promise<PersonalAi
       provider: model.provider,
       origin: model.origin,
       model: modelHealth.model ?? model.defaultModel,
+      defaultModel: model.defaultModel,
+      defaultReason: model.defaultReason,
+      supportedTasks: [...model.supportedTasks],
+      models: model.models.map((option) => ({ ...option, recommended: option.id === model.defaultModel })),
       status: modelHealth.status,
       detail: modelHealth.detail,
       configured: config?.configured ?? false,
@@ -113,6 +122,7 @@ async function aiSettingsView(base?: PersonalAiSettingsView): Promise<PersonalAi
       unavailableReason: modelHealth.status === "ready" ? undefined : "Not ready",
       estimatedDownloadBytes: 0,
       estimatedPeakMemoryMb: 0,
+      supportedTasks: [...model.supportedTasks],
     }
   })
   const selectedApiHealth = apiModelId ? health.get(apiModelId) : undefined
@@ -125,7 +135,7 @@ async function aiSettingsView(base?: PersonalAiSettingsView): Promise<PersonalAi
     localModelId: apiModelId ?? current.localModelId,
     localModelStatus: apiModelId ? selectedApiHealth?.status ?? "not_ready" : current.localModelStatus,
     localModelDetail: apiModelId ? selectedApiHealth?.detail : current.localModelDetail,
-    localModels: [...current.localModels, ...apiCards],
+    localModels: [...current.localModels.map((model) => ({ ...model, supportedTasks: localModel(model.id).supportedTasks })), ...apiCards],
   }
 }
 
@@ -146,6 +156,7 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
     return result
   }
   if (request.type === "PERSONAL_CLEAR_ALL") {
+    await clearSourcePrepare()
     await resetTransferRuntime()
     await personalAdmin.clearAll()
     await clearBuiltinApiModels()
@@ -161,6 +172,23 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
   if (request.type === "PERSONAL_EXPORT_DIAGNOSTICS") return personalAdmin.exportDiagnostics()
   if (request.type === "PERSONAL_GET_AI_SETTINGS") return aiSettingsView()
   if (request.type === "PERSONAL_GET_LLM_LOGS") return personalAdmin.llmLogs()
+  if (request.type === "PERSONAL_GET_PREPARE_SOURCE") {
+    const session = await transferCommand({ type: "GET_TRANSFER" }) as Session
+    return session.sourceTabId === undefined ? null : getSourcePrepare(session.sourceTabId)
+  }
+  if (request.type === "PERSONAL_PREPARE_SOURCE") {
+    const modelId = await selectedApiModelId()
+    if (!modelId) throw new Error("This model does not support document extraction. Choose another AI model.")
+    const definition = builtinApiModel(modelId)
+    if (!definition.supportedTasks.includes("source_extract")) throw new Error("This model does not support document extraction. Choose another AI model.")
+    const config = await builtinApiModelConfig(modelId)
+    if (!config.hasKey) throw new Error(`Select and configure ${definition.displayName} before preparing the source`)
+    if (!await chrome.permissions.contains({ origins: [`${definition.origin}/*`] })) throw new Error("Allow this website before using its AI provider")
+    return prepareSource(request.documents, modelId, new DirectApiProvider(definition, config.model))
+  }
+  if (request.type === "PERSONAL_UNDO_PREPARE_SOURCE") return undoSourcePrepare(request.sessionId)
+  if (request.type === "PERSONAL_CLEAR_PREPARE_SOURCE") return clearSourcePrepare(request.sessionId)
+  if (request.type === "PERSONAL_SHOW_PREPARE_EVIDENCE") return showSourcePrepareEvidence(request.sessionId, request.visible)
   if (request.type === "PERSONAL_SET_LOCAL_AI_ENABLED") {
     if (isBuiltinApiModel(request.modelId)) {
       if (request.enabled) {
@@ -292,12 +320,22 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
   throw new Error("Unsupported workspace request")
 }
 
-chrome.runtime.onMessage.addListener((request: WorkerRequest, _sender, sendResponse) => {
+chrome.tabs.onUpdated.addListener((tabId, changes) => {
+  if (changes.status === "loading" || changes.url) void clearSourcePrepare(undefined, tabId).catch(() => undefined)
+})
+chrome.tabs.onRemoved.addListener((tabId) => { void clearSourcePrepare(undefined, tabId).catch(() => undefined) })
+
+chrome.runtime.onMessage.addListener((request: WorkerRequest, sender, sendResponse) => {
+  if (request.type === "PERSONAL_PREPARE_SOURCE_EDITED") {
+    if (sender.tab?.id !== undefined) void sourcePrepareEdited(request.sessionId, request.fieldKey, sender.tab.id).catch(() => undefined)
+    sendResponse({ ok: true, data: null }); return false
+  }
   void handleWorkspaceRequest(request)
     .then((data) => sendResponse({ ok: true, data } satisfies WorkerResponse<unknown>))
     .catch(async (error) => {
       await reportRuntimeError(error, request.type).catch(() => undefined)
-      sendResponse({ ok: false, error: errorMessage(error) } satisfies WorkerResponse<never>)
+      sendResponse({ ok: false, error: request.type.includes("PREPARE_SOURCE") || request.type === "PERSONAL_SHOW_PREPARE_EVIDENCE"
+        ? safePrepareError(error) : errorMessage(error) } satisfies WorkerResponse<never>)
     })
   return true
 })

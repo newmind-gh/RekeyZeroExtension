@@ -5,6 +5,8 @@ import type { Command, MappingProfile, Session } from "../transfer/types"
 import type { PersonalAiSettingsView } from "../shared/types"
 import { successful } from "../transfer/planner"
 import { PROFILE_REVISION_KEY } from "../transfer/store"
+import { PrepareSourceCard } from "./PrepareSourceCard"
+import { isBlankSourceValue } from "../personal/source-prepare/source-value-normalizer"
 
 const PROFILE_FIELD_NOT_APPLICABLE = "__rekeyzero_not_applicable__"
 
@@ -28,6 +30,7 @@ export function TransferPanel() {
   const [selectedProfileId, setSelectedProfileId] = useState("")
   const [selectedFillSetupId, setSelectedFillSetupId] = useState("")
   const [creatingProfile, setCreatingProfile] = useState(false)
+  const [nonAiOpen, setNonAiOpen] = useState(false)
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileName, setProfileName] = useState("")
   const [profileDraft, setProfileDraft] = useState<Record<string, Record<string, { sourceInstanceKey?: string; existingValuePolicy: "blank_only" | "overwrite" | "skip" }>>>({})
@@ -178,8 +181,9 @@ export function TransferPanel() {
       setSelected((ids) => ids.filter((id) => id !== sourceTabId && openTabs.some((tab) => tab.id === id)))
     } catch (caught) { setProfileError(caught instanceof Error ? caught.message : "Unable to refresh open tabs") }
   }
-  const selectSource = async (tabId: number) => {
-    setBusy(true); setProfileError("")
+  const selectSource = async (tabId: number, section: "profile" | "ai-fill" = "profile") => {
+    const setError = section === "ai-fill" ? setAiFillError : setProfileError
+    setBusy(true); setError("")
     try {
       const tab = tabs.find((candidate) => candidate.id === tabId)
       if (!tab?.url || !tab.id) return
@@ -192,7 +196,7 @@ export function TransferPanel() {
       sourceTabIdRef.current = tabId
       setSourceTabId(tabId)
       setSelected(tabs.filter((candidate) => candidate.id !== tabId).map((candidate) => candidate.id!))
-    } catch (caught) { setProfileError(caught instanceof Error ? caught.message : "Unable to select the source tab") }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to select the source tab") }
     finally { setBusy(false) }
   }
   const prepareSelectedTabs = async () => {
@@ -362,8 +366,8 @@ export function TransferPanel() {
   const saveApiProvider = async () => {
     const selected = localAi?.apiModels?.find((model) => model.id === apiProviderId)
     if (!selected) return
-    if (!apiModelName.trim()) {
-      setAiFillError("Enter the provider model name")
+    if (!selected.models.some((model) => model.id === apiModelName)) {
+      setAiFillError(`Choose a supported ${selected.displayName.replace(/ · API$/, "")} model`)
       return
     }
     if (!apiKey.trim() && !selected.hasKey) {
@@ -545,7 +549,8 @@ export function TransferPanel() {
   )
   const profileSessionError = activeSessionIsAiFill ? "" : session?.error ?? ""
   const aiFillSessionError = activeSessionIsAiFill ? session?.error ?? "" : ""
-  const selectedApiModel = localAi?.apiModels?.find((model) => model.id === localAi.selectedModelId)
+  const selectedApiModel = localAi?.apiModels?.find((model) => model.id === (localAi.selectedModelId ?? apiProviderId))
+  const selectedApiOption = selectedApiModel?.models.find((model) => model.id === apiModelName)
   return <main className="transfer-panel">
     <header className="transfer-header">
       <h1>RekeyZero Personal</h1>
@@ -557,39 +562,34 @@ export function TransferPanel() {
         onClick={() => void chrome.runtime.openOptionsPage().catch((caught) => setProfileError(caught instanceof Error ? caught.message : "Unable to open RekeyZero Admin"))}
       ><Settings aria-hidden="true" size={18} /></button>
     </header>
-    <section className="card"><h2>ZeroKey Profile</h2>
-      {(profileError || profileSessionError) && <div className="error" role="alert">{profileError || profileSessionError}</div>}
-      {!creatingProfile && <>
-      <select aria-label="Transfer Profile" value={selectedProfileId} disabled={disabled} onChange={(event) => setSelectedProfileId(event.target.value)}>
-        <option value="" disabled>{profiles.length ? "Select a profile" : "No profiles available"}</option>
-        {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-      </select>
-      <button disabled={disabled} onClick={() => void startCreateProfile()}>Create Profile</button>
-      <button disabled={disabled || !selectedProfileId} onClick={() => void openSelectedProfile()}>Open Profile</button>
-      <div className="profile-run-actions">
-        <button disabled={disabled || !selectedProfileId} onClick={() => void prepareAndFill()}>Fill</button>
-        <button disabled={busy || !preparedTargets.length} onClick={() => void run({ type: "RESET_TRANSFER" })}>Reset</button>
-      </div>
-      </>}
-    </section>
     {!creatingProfile && <section className="card ai-fill-setup"><h2>AI ZeroKey Profile</h2>
+      <div className="current-source"><h3>Current Source</h3>
+        <label>Source page<select aria-label="Current source tab" value={sourceTabId ?? ""} disabled={busy || frozen} onChange={(event) => void selectSource(Number(event.target.value), "ai-fill")}>
+          <option value="" disabled>Select a source tab</option>{tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.title || new URL(tab.url!).hostname}</option>)}
+        </select></label>
+        {session?.source && <p>{session.source.fields.length} fields · {session.source.fields.filter((field) => !isBlankSourceValue(field.value)).length} populated · {session.source.fields.filter((field) => isBlankSourceValue(field.value)).length} blank</p>}
+        <button type="button" disabled={busy || frozen || !sourceTabId} onClick={() => sourceTabId && void selectSource(sourceTabId, "ai-fill")}>Observe source page</button>
+        {session?.source?.truncated && <p className="help">Partial scan: first 120 eligible controls only. Select a source section before preparing a larger form.</p>}
+        {!frozen && session?.source && session.source.availableGroups.length > 1 && <label>Source section<select aria-label="Prepare source section" value={session.source.group} disabled={busy}
+          onChange={(event) => void run({ type: "SET_SOURCE", tabId: session.sourceTabId!, group: event.target.value }, "ai-fill")}>
+          <option value="">All sections (up to 120 controls)</option>{session.source.availableGroups.map((group) => <option key={group} value={group}>{group}</option>)}
+        </select></label>}
+      </div>
       {aiFillError && <div className="error" role="alert">{aiFillError}</div>}
       {!aiFillError && aiFillSessionError && <div className="error" role="alert">{aiFillSessionError}</div>}
       {fillSetupStatus && <p className="fill-setup-status" role="status">{fillSetupStatus}</p>}
       <select
         aria-label="AI Model"
-        value={localAi?.selectedModelId ?? ""}
+        value={localAi?.selectedModelId ?? apiProviderId}
         disabled={busy || !localAi}
         onChange={(event) => { if (event.target.value) selectAiModel(event.target.value) }}
       >
         <option value="" disabled>Select AI Model</option>
-        {localAi?.localModels.map((model) => {
+        {(["Local", "API"] as const).map((group) => <optgroup key={group} label={group}>
+        {localAi?.localModels.filter((model) => Boolean(localAi.apiModels?.some((api) => api.id === model.id)) === (group === "API")).map((model) => {
           const apiModel = localAi.apiModels?.find((candidate) => candidate.id === model.id)
           const isApiModel = Boolean(apiModel)
           const isExternalLocalRuntime = !isApiModel && model.estimatedDownloadBytes === 0 && model.estimatedPeakMemoryMb === 0
-          const displayName = apiModel
-            ? `${model.displayName.replace(/ · API$/, "")} · ${apiModel.model} · API`
-            : model.displayName
           const status = isApiModel
             ? (model.status === "ready" ? "Ready" : "Not ready")
             : isExternalLocalRuntime
@@ -604,13 +604,18 @@ export function TransferPanel() {
                       ? "Not ready"
                       : "Not downloaded"
           return <option key={model.id} value={model.id}>
-            {displayName}{model.experimental ? " · Experimental" : ""}{status ? ` · ${status}` : ""}
+            {model.displayName}{model.experimental ? " · Experimental" : ""}{status ? ` · ${status}` : ""}
           </option>
-        })}
+        })}</optgroup>)}
       </select>
       {selectedApiModel && <details className="api-provider-config" open={apiSettingsOpen} onToggle={(event) => setApiSettingsOpen(event.currentTarget.open)}>
         <summary>API settings</summary>
-        <label>{selectedApiModel.displayName} model<input aria-label={`${selectedApiModel.displayName} model`} value={apiModelName} disabled={busy} onChange={(event) => setApiModelName(event.target.value)} /></label>
+        <label>{selectedApiModel.displayName} model<select aria-label={`${selectedApiModel.displayName} model`} value={apiModelName} disabled={busy} onChange={(event) => setApiModelName(event.target.value)}>
+          {selectedApiModel.models.map((model) => <option key={model.id} value={model.id}>
+            {model.displayName}{model.costTier === "free" ? " · Free tier" : model.costTier === "lowest_cost" ? " · Lowest cost" : ""}{model.recommended ? " · Recommended" : ""}
+          </option>)}
+        </select></label>
+        {selectedApiOption?.recommended && <p className="help">{selectedApiModel.defaultReason === "free_tier" ? "Free tier" : "Lowest cost"} · Recommended</p>}
         <label>{selectedApiModel.displayName} key<input aria-label={`${selectedApiModel.displayName} key`} type="password" autoComplete="off" value={apiKey} disabled={busy} placeholder={selectedApiModel.hasKey ? "Leave blank to keep the saved key" : "Enter API key"} onChange={(event) => setApiKey(event.target.value)} /></label>
         <p className="help">The key stays only in extension session storage and must be entered again after the browser restarts.</p>
         <div className="api-provider-actions">
@@ -618,6 +623,11 @@ export function TransferPanel() {
           <button className="secondary" disabled={busy || !selectedApiModel.configured} onClick={() => void resetApiProvider()}>Reset</button>
         </div>
       </details>}
+      <PrepareSourceCard source={session?.source} tabId={sourceTabId} busy={busy || frozen} onBusy={setBusy}
+        aiReady={Boolean(localAi?.apiModelId === localAi?.selectedModelId && selectedApiModel?.status === "ready")}
+        supportsExtraction={Boolean(localAi?.localModels.find((model) => model.id === (localAi.selectedModelId ?? apiProviderId))?.supportedTasks?.includes("source_extract"))}
+        onComplete={async () => setSession(await command({ type: "GET_TRANSFER" }))} />
+      <h3>AI Mapping</h3>
       <select aria-label="AI Transfer Profile" value={selectedFillSetupId} disabled={disabled} onChange={(event) => setSelectedFillSetupId(event.target.value)}><option value="" disabled>{fillSetups.length ? "Select a profile" : "No profiles available"}</option>{fillSetups.map((setup) => <option key={setup.id} value={setup.id}>{setup.name}</option>)}</select>
       <button disabled={disabled} onClick={startCreateFillSetup}>Create Profile</button>
       <button disabled={disabled || !selectedFillSetupId} onClick={openFillSetup}>Open Profile</button>
@@ -633,6 +643,23 @@ export function TransferPanel() {
         <button className="secondary" disabled={disabled} onClick={() => { setCreatingFillSetup(false); setEditingFillSetupId("") }}>Cancel</button>
       </div>}
     </section>}
+    <details className="non-ai-profile" open={nonAiOpen || creatingProfile} onToggle={(event) => setNonAiOpen(event.currentTarget.open)}>
+      <summary>Use Non-AI ZeroKey Profile</summary>
+    <section className="card"><h2>ZeroKey Profile</h2>
+      {(profileError || profileSessionError) && <div className="error" role="alert">{profileError || profileSessionError}</div>}
+      {!creatingProfile && <>
+      <select aria-label="Transfer Profile" value={selectedProfileId} disabled={disabled} onChange={(event) => setSelectedProfileId(event.target.value)}>
+        <option value="" disabled>{profiles.length ? "Select a profile" : "No profiles available"}</option>
+        {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+      </select>
+      <button disabled={disabled} onClick={() => void startCreateProfile()}>Create Profile</button>
+      <button disabled={disabled || !selectedProfileId} onClick={() => void openSelectedProfile()}>Open Profile</button>
+      <div className="profile-run-actions">
+        <button disabled={disabled || !selectedProfileId} onClick={() => void prepareAndFill()}>Fill</button>
+        <button disabled={busy || !preparedTargets.length} onClick={() => void run({ type: "RESET_TRANSFER" })}>Reset</button>
+      </div>
+      </>}
+    </section>
     {creatingProfile && <>
     <section className="card"><h2>Source tab</h2>
       <label>Source<select aria-label="Source tab" value={sourceTabId ?? ""} disabled={disabled || editingProfile} onChange={(event) => void selectSource(Number(event.target.value))}>
@@ -696,6 +723,7 @@ export function TransferPanel() {
       </>}
       <button disabled={disabled} onClick={cancelCreateProfile}>{selectedProfileId ? "Close" : "Cancel"}</button>
     </section>}
+    </details>
     {session?.profileDrift && <section className="card profile-drift" aria-label="Profile Drift Report">
       <h2>Profile changed</h2>
       <p>Review the detected changes. Only compatible saved mappings can be filled; new and changed fields stay blocked.</p>

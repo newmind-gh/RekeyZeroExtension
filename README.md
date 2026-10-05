@@ -12,6 +12,8 @@ RekeyZero is an open-source Chromium extension for safely reusing information fr
 
 RekeyZero provides **AI mapping** and **non-AI mapping**. AI mapping proposes semantic relationships between source and target fields for your review; non-AI mapping lets you define those relationships directly. Both produce reusable Profiles for guarded filling.
 
+AI also offers **Prepare Source**: extract documented facts from uploaded files into blank fields on the current source webpage, review evidence directly there, then continue with the existing AI Mapping flow. The webpage remains the canonical source.
+
 [Try the synthetic live demo](https://newmind-gh.github.io/RekeyZeroExtension/) · [Watch the actual extension walkthrough](https://newmind-gh.github.io/RekeyZeroExtension/walkthrough.webm)
 
 The demo uses synthetic records and the real extension. The recorded walkthrough demonstrates non-AI mapping with a manually reviewed Profile. Demo Submit opens a local preview only.
@@ -88,17 +90,36 @@ AI matching receives field labels, control types, groups, and accepted options. 
 Current model options include:
 
 - Qwen2.5 1.5B and Gemma 2 2B through browser-local WebLLM;
-- Gemini through its direct API;
-- DeepSeek through its direct API; and
-- GPT through the OpenAI API, defaulting to `gpt-5.6-terra`.
+- Gemini, OpenAI, Claude, and DeepSeek through their direct APIs, with one provider configuration and a curated model selector for each.
+
+Provider defaults favor a free tier where available, otherwise the lowest-cost supported model: Gemini `gemini-3.5-flash-lite`, OpenAI `gpt-5.6-luna`, Claude `claude-haiku-4-5`, and DeepSeek `deepseek-flash`. The registry is updated with releases; the extension does not fetch model catalogs or pricing dynamically. Cost labels describe these supported options, not every model offered by a provider. See the official [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing), [OpenAI Luna model](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [Claude models](https://platform.claude.com/docs/en/models/overview), and [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/).
+
+The first API suggestion is Gemini Flash-Lite. This does not activate an external service: enter an API key, grant the provider's host permission, and choose **Save and select** first. Switching providers retains each saved supported model. Old DeepSeek Flash aliases migrate to `deepseek-flash`; unsupported stored model IDs fall back to that provider's default. The previous Gemini `gemini-3.5-flash` and OpenAI Terra choices remain supported. Reset clears that provider's key/configuration/permission and restores its default; Clear all includes Claude.
+
+Claude uses the Messages API with native JSON Schema output and no extended thinking. Its adapter translates unsupported array-length schema constraints into descriptions while retaining the complete schema in the prompt. All API output continues through JSON extraction, one retry for malformed JSON, field-match validation, deterministic execution, and human review. These integrations are covered by mocked transport and browser tests; live model quality is not certified by those checks.
 
 For API models, requests go directly from the extension to the selected provider. There is no RekeyZero proxy. API keys remain in extension session storage and must be entered again after the browser restarts.
+
+### Prepare Source with AI
+
+The AI section appears first and shares one model selector between preparation and mapping. **Use Non-AI ZeroKey Profile** is collapsed by default and contains the existing manual mapping controls.
+
+1. Select the current source tab and choose **Observe source page** to grant website access and inspect its fields. Choose a source section for larger forms; observation remains bounded to 120 controls.
+2. Configure and select a supported Direct API model. Gemini, OpenAI, Claude, and DeepSeek support `source_extract`. The current browser-local models declare only `field_match`, so Prepare is disabled for those models.
+3. Upload or drop TXT, Markdown, text-based PDF, or DOCX documents. Limits are 6 documents, 10 MB per file, 200 PDF pages, and 80,000 extracted characters across all documents. DOCX parsing reads paragraphs and table cells from a bounded `word/document.xml`. Scanned/image-only PDFs and OCR are not supported. PDF parsing uses a packaged local PDF.js worker; DOCX parsing uses fflate and inert XML parsing. Neither executes document scripts or renders document HTML.
+4. Choose **Extract & fill source**. Unlike field matching, this action sends **document content** plus blank-field metadata directly to the selected provider. Existing populated field values are excluded. Evidence quotes must be short, verbatim excerpts in the specified document/page. Missing, ambiguous, invalid, duplicate, and unsupported decisions are skipped.
+5. Review green **AI filled** fields on the source page. Click a field or its badge to disclose evidence, or use **Show evidence** in the panel. Editing a filled field changes its badge to **Reviewed / edited**. The annotation does not replace controls or enter field observation. If a blank field becomes populated during extraction, its current value is preserved; a different supported extracted value gets an amber **Existing value preserved** annotation. Initially populated fields are counted as preserved, without sending them to AI for conflict analysis.
+6. **Undo AI fill** restores only unchanged AI-applied values through the same guarded adapters. Exact current-value checks preserve user edits; changed pages or controls are skipped. The panel reports restored, preserved, and stale counts. **Clear preparation** removes documents, session results, and annotations while retaining current webpage values.
+
+Prepare re-observes before extraction, after the response, and before each write. It resolves the original observed field instance, checks page identity, structure, current options, editability, and blank state, then reuses the deterministic guarded page executor. Numbers and currency/k/m abbreviations are normalized without rounding; booleans, ISO dates or named-month dates, and unique accepted selections are supported. Ambiguous dates and unmatched options are skipped. Frozen transfer batches must be reset before preparation.
+
+Parsed document text, metadata, evidence, results, and Undo snapshots use trusted extension session storage. Tab navigation/closure and **Clear all data** discard them. Prepare never stores raw requests/responses, documents, or extracted values in durable logs, Profiles, or exports; arbitrary extraction errors are redacted. A worker restart ends an interrupted preparation without replaying its writes. No vector database, remote document parser, OCR, extension-side field review screen, or overwrite mode is introduced. After preparation, the source snapshot is refreshed and ordinary AI Profiles use the current webpage values without knowing how they were entered.
 
 ## Quick start
 
 ### Requirements
 
-- Node.js 22 or newer
+- Node.js 22.13 or newer
 - npm
 - Chrome, Edge, or another compatible Chromium browser version 124 or newer
 - WebGPU support when using a browser-local model
@@ -193,7 +214,7 @@ RekeyZero is designed for user-supervised form filling:
 - unsupported or ambiguous operations stop for user review; and
 - API keys, information values, profile mappings, page text, and provider response bodies are excluded from diagnostics.
 
-The extension keeps durable product state in browser IndexedDB. Active transfer batches and API keys use extension session storage.
+The extension keeps durable product state in browser IndexedDB. Active transfer batches, API keys, and Source Preparation documents/evidence/results use extension session storage. Source Preparation always preserves populated fields, and its document content goes directly to the selected AI provider only when the user chooses extraction.
 
 ## Development and validation
 
@@ -205,6 +226,8 @@ npm test
 npx playwright install chromium
 npm run test:e2e
 ```
+
+Source Preparation tests include normalization, evidence/contract validation, blank-only guards, partial failure accounting, cancellation and safe Undo, cross-provider extraction privacy, real local PDF/DOCX parsing, source-page annotations, navigation cleanup, and continuation through the existing AI Mapping Profile. Provider responses are mocked; these checks do not certify live extraction accuracy.
 
 Pull requests run extension unit tests, TypeScript checks, and builds. Pushes to `main` and manual CI runs also run Chromium end-to-end validation, scan release packages, and upload release candidates. Version tags run the complete release pipeline before publishing ZIP, SHA-256, and manifest assets to GitHub Releases.
 

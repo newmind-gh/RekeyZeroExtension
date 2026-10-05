@@ -8,6 +8,7 @@ import { join } from "node:path"
 import { startPortalServer } from "../../../tests/extension-portal/server.mjs"
 import { extensionOutputDirectory } from "../build-output"
 import type { MappingProfile, Session } from "../src/transfer/types"
+import type { PersonalAiSettingsView } from "../src/shared/types"
 
 type WorkerResponse<T> = { ok: true; data: T } | { ok: false; error: string }
 
@@ -87,16 +88,96 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
     await expect(extensionPage.locator('label:has(select[aria-label="Profile"])')).toHaveCount(0)
     await expect(extensionPage.getByRole("heading", { name: "AI ZeroKey Profile" })).toBeVisible()
     await expect(extensionPage.getByRole("combobox", { name: "AI Model" })).toBeVisible()
-    await expect(extensionPage.getByText("API settings", { exact: true })).toHaveCount(0)
+    await expect(extensionPage.getByRole("combobox", { name: "AI Model" })).toHaveValue("personal-gemini-api-v1")
+    await expect(extensionPage.getByRole("combobox", { name: "Gemini · API model" })).toHaveValue("gemini-3.5-flash-lite")
+    expect((await request<PersonalAiSettingsView>({ type: "PERSONAL_GET_AI_SETTINGS" })).apiModelId).toBeNull()
     await expect(extensionPage.locator('select[aria-label="AI Model"] option[value="personal-gpt-api-v1"]')).toBeEnabled()
     await extensionPage.getByRole("combobox", { name: "AI Model" }).selectOption("personal-gpt-api-v1")
     await expect(extensionPage.getByText("API settings", { exact: true })).toBeVisible()
-    await expect(extensionPage.getByLabel("GPT · API model")).toBeVisible()
-    await expect(extensionPage.getByLabel("GPT · API key")).toBeVisible()
+    await expect(extensionPage.getByRole("combobox", { name: "OpenAI · API model" })).toHaveValue("gpt-5.6-luna")
+    await expect(extensionPage.getByLabel("OpenAI · API key")).toBeVisible()
     await extensionPage.locator(".ai-fill-setup").getByRole("button", { name: "Create Profile" }).click()
     await expect(extensionPage.getByLabel("Or enter source URL")).toBeVisible()
     await expect(extensionPage.getByLabel(/Additional target URLs/)).toBeVisible()
     await extensionPage.getByRole("button", { name: "Cancel" }).click()
+  })
+
+  test("selects curated API models, preserves choices, resets, and clears Claude permissions and secrets", async () => {
+    await extensionPage.evaluate(() => {
+      const captured: string[][] = []
+      Object.assign(globalThis, { requestedApiOrigins: captured })
+      chrome.permissions.request = async (permissions) => {
+        captured.push(permissions.origins ?? [])
+        return true
+      }
+    })
+    await worker.evaluate(() => {
+      const original = chrome.permissions.remove.bind(chrome.permissions)
+      const captured: string[][] = []
+      Object.assign(globalThis, { removedApiOrigins: captured, originalPermissionsRemove: original })
+      chrome.permissions.remove = async (permissions) => {
+        captured.push(permissions.origins ?? [])
+        return original(permissions)
+      }
+    })
+    extensionPage.on("dialog", (dialog) => void dialog.accept())
+    try {
+      const settings = await request<PersonalAiSettingsView>({ type: "PERSONAL_GET_AI_SETTINGS" })
+      const providerSelect = extensionPage.getByRole("combobox", { name: "AI Model" })
+      for (const provider of settings.apiModels!) {
+        await providerSelect.selectOption(provider.id)
+        const modelSelect = extensionPage.getByRole("combobox", { name: `${provider.displayName} model` })
+        await expect(modelSelect).toHaveValue(provider.defaultModel)
+        await expect(modelSelect.locator("option")).toHaveCount(provider.models.length)
+        expect((await request<PersonalAiSettingsView>({ type: "PERSONAL_GET_AI_SETTINGS" })).apiModelId).toBeNull()
+      }
+      await expect(request({ type: "PERSONAL_CONFIGURE_API_MODEL", modelId: "personal-claude-api-v1",
+        model: "unsupported-preview", apiKey: "unsaved-e2e-key", rememberKey: false,
+      })).rejects.toThrow("Choose a supported Claude model")
+
+      await providerSelect.selectOption("personal-gpt-api-v1")
+      await extensionPage.getByRole("combobox", { name: "OpenAI · API model" }).selectOption("gpt-5.6-terra")
+      await extensionPage.getByLabel("OpenAI · API key").fill("openai-e2e-fixture-key")
+      await extensionPage.getByRole("button", { name: "Save and select", exact: true }).click()
+      await expect(extensionPage.getByRole("status")).toContainText("OpenAI · API is configured and selected.")
+      await providerSelect.selectOption("personal-claude-api-v1")
+      await extensionPage.getByLabel("Claude · API key").fill("claude-e2e-fixture-key")
+      await extensionPage.getByRole("button", { name: "Save and select", exact: true }).click()
+      await expect(extensionPage.getByRole("status")).toContainText("Claude · API is configured and selected.")
+      await providerSelect.selectOption("personal-gpt-api-v1")
+      await expect(extensionPage.getByRole("combobox", { name: "OpenAI · API model" })).toHaveValue("gpt-5.6-terra")
+      await providerSelect.selectOption("personal-claude-api-v1")
+      await expect(extensionPage.getByRole("combobox", { name: "Claude · API model" })).toHaveValue("claude-haiku-4-5")
+      await extensionPage.locator(".api-provider-actions").getByRole("button", { name: "Reset", exact: true }).click()
+      await expect(extensionPage.getByRole("status")).toContainText("was reset to its default model")
+      let updated = await request<PersonalAiSettingsView>({ type: "PERSONAL_GET_AI_SETTINGS" })
+      expect(updated.apiModels!.find((provider) => provider.id === "personal-claude-api-v1")).toMatchObject({
+        model: "claude-haiku-4-5", hasKey: false, configured: false,
+      })
+      await extensionPage.getByLabel("Claude · API key").fill("claude-e2e-fixture-key")
+      await extensionPage.getByRole("button", { name: "Save and select", exact: true }).click()
+      await expect(extensionPage.getByRole("status")).toContainText("Claude · API is configured and selected.")
+      const storage = await worker.evaluate(async () => JSON.stringify(await chrome.storage.local.get(null)))
+      expect(storage).not.toContain("e2e-fixture-key")
+      expect(storage).not.toContain("unsaved-e2e-key")
+      expect(await request<string>({ type: "PERSONAL_EXPORT" })).not.toContain("e2e-fixture-key")
+      await request({ type: "PERSONAL_CLEAR_ALL" })
+      updated = await request<PersonalAiSettingsView>({ type: "PERSONAL_GET_AI_SETTINGS" })
+      expect(updated.apiModelId).toBeNull()
+      expect(updated.apiModels!.every((provider) => !provider.hasKey && !provider.configured)).toBe(true)
+      expect(await worker.evaluate(async () => await chrome.storage.session.get(null))).toEqual({})
+      const removals = await worker.evaluate(() => (globalThis as typeof globalThis & { removedApiOrigins: string[][] }).removedApiOrigins)
+      expect(removals).toContainEqual(["https://api.anthropic.com/*"])
+      expect(removals).toContainEqual(settings.apiModels!.map((provider) => `${provider.origin}/*`))
+      const grants = await extensionPage.evaluate(() => (globalThis as typeof globalThis & { requestedApiOrigins: string[][] }).requestedApiOrigins)
+      expect(grants).toEqual([["https://api.openai.com/*"], ["https://api.anthropic.com/*"], ["https://api.anthropic.com/*"]])
+    } finally {
+      await worker.evaluate(() => {
+        chrome.permissions.remove = (globalThis as typeof globalThis & { originalPermissionsRemove: typeof chrome.permissions.remove }).originalPermissionsRemove
+      })
+      await extensionPage.reload(); await extensionPage.getByText("Use Non-AI ZeroKey Profile", { exact: true }).click()
+    }
+    await expect(extensionPage.getByRole("combobox", { name: "Gemini · API model" })).toHaveValue("gemini-3.5-flash-lite")
   })
 
   test("creates, reopens, runs, resets, and deletes a Mapping Profile", async () => {
@@ -113,7 +194,7 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
     const sourceId = await extensionPage.evaluate(async (origin) => (await chrome.tabs.query({ url: `${origin}/transfer-demo/source` }))[0].id!, portal.baseUrl)
     const targetId = await extensionPage.evaluate(async (origin) => (await chrome.tabs.query({ url: `${origin}/transfer-demo/marketplace` }))[0].id!, portal.baseUrl)
 
-    await extensionPage.reload()
+    await extensionPage.reload(); await extensionPage.getByText("Use Non-AI ZeroKey Profile", { exact: true }).click()
     const profileSection = extensionPage.locator("section.card").filter({
       has: extensionPage.getByRole("heading", { name: "ZeroKey Profile", exact: true }),
     })
@@ -278,7 +359,7 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
         else if (change === "type") field.type = "email"
         else field.parentElement!.appendChild(field.cloneNode(true))
       }, change)
-      await extensionPage.reload()
+      await extensionPage.reload(); await extensionPage.getByText("Use Non-AI ZeroKey Profile", { exact: true }).click()
       await extensionPage.getByLabel("Transfer Profile", { exact: true }).selectOption(profile.id)
       const profileSection = extensionPage.locator("section.card").filter({ has: extensionPage.getByRole("heading", { name: "ZeroKey Profile", exact: true }) })
       await profileSection.getByRole("button", { name: "Fill", exact: true }).click()

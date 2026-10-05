@@ -22,6 +22,12 @@ export type WorkerRequest =
     }
   | { type: "PERSONAL_REMOVE_API_MODEL"; modelId: string }
   | { type: "PERSONAL_AI_MATCH_TRANSFER" }
+  | { type: "PERSONAL_PREPARE_SOURCE"; documents: import("../personal/source-prepare/source-prepare-session").ParsedDocument[] }
+  | { type: "PERSONAL_GET_PREPARE_SOURCE" }
+  | { type: "PERSONAL_UNDO_PREPARE_SOURCE"; sessionId: string }
+  | { type: "PERSONAL_CLEAR_PREPARE_SOURCE"; sessionId: string }
+  | { type: "PERSONAL_SHOW_PREPARE_EVIDENCE"; sessionId: string; visible: boolean }
+  | { type: "PERSONAL_PREPARE_SOURCE_EDITED"; sessionId: string; fieldKey: string }
   | { type: "TRANSFER"; command: Command }
   | { type: "TRANSFER_TAB_READY"; tabId: number }
   | { type: "TRANSFER_INVALIDATE_TAB"; tabId: number }

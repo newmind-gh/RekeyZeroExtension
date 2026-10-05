@@ -30,6 +30,7 @@ export type PersonalAiSettingsView = {
   localModelStatus: "not_ready" | "ready" | "loading" | "failed" | "unsupported_device"
   localModelDetail?: string
   localModels: Array<{
+    supportedTasks?: Array<"field_match" | "source_extract">
     id: string
     displayName: string
     modelArtifact: string
@@ -45,9 +46,18 @@ export type PersonalAiSettingsView = {
   apiModels?: Array<{
     id: string
     displayName: string
-    provider: "gemini" | "deepseek" | "openai"
+    provider: "gemini" | "deepseek" | "openai" | "anthropic"
     origin: string
     model: string
+    defaultModel: string
+    defaultReason: "free_tier" | "lowest_cost"
+    supportedTasks: Array<"field_match" | "source_extract">
+    models: Array<{
+      id: string
+      displayName: string
+      costTier: "free" | "lowest_cost" | "standard" | "premium"
+      recommended: boolean
+    }>
     status: "ready" | "not_ready"
     detail?: string
     configured: boolean

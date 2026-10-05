@@ -11,17 +11,19 @@
     "check": "node scripts/build.mjs --pretty false",
     "check:personal": "npm run check",
     "test": "vitest run --mode personal",
-    "test:e2e": "npm run build && playwright test tests/personal-orchestration.e2e.ts tests/control-adapters.e2e.ts",
+    "test:e2e": "npm run build && playwright test tests/personal-orchestration.e2e.ts tests/control-adapters.e2e.ts tests/source-prepare.e2e.ts",
     "test:e2e:personal": "npm run test:e2e",
     "release": "node scripts/release.mjs",
     "release:personal": "npm run release"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.82",
+    "fflate": "0.8.3",
     "lucide-react": "^0.540.0",
+    "pdfjs-dist": "6.4.299",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

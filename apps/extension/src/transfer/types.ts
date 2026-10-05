@@ -151,7 +151,12 @@ export type Command =
 export type Envelope = { transferId: string; targetId: string; tabId: number; documentEpoch: string; requestId: string }
 export type PageCommand = Envelope & {
   type: "TRANSFER_PAGE"
-  operation: "observe" | "apply" | "read"
+  operation: "observe" | "apply" | "read" | "annotate_source" | "clear_source_annotations" | "toggle_source_evidence"
+  blankOnly?: boolean
+  requireExactValue?: boolean
+  sourceReview?: import("../personal/source-prepare/source-prepare-session").SourceReviewMark
+  sourcePrepareSessionId?: string
+  evidenceVisible?: boolean
   plan?: Plan
   selectedGroups?: string[]
   actionId?: string

@@ -1,4 +1,4 @@
-export type ModelTask = "field_match"
+export type ModelTask = "field_match" | "source_extract"
 
 export type ModelHealth = {
   status: "not_ready" | "ready" | "loading" | "failed" | "unsupported_device"

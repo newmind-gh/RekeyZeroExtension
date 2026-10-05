@@ -12,7 +12,7 @@ export function discoverDomScopes(): { scopes: DomScope[]; limited: boolean } {
   function walk(root: Document | ShadowRoot, path: string, connected: () => boolean, depth: number) {
     if (depth > 8 || scopes.length >= 32) { limited = true; return }
     scopes.push({ root, path, token: token(root), url: (root.nodeType === 9 ? root as Document : root.ownerDocument!).URL, connected })
-    const nodes = root.querySelectorAll("*")
+    const nodes = Array.from(root.querySelectorAll("*")).filter((element) => !element.closest("[data-rekeyzero-ui]"))
     for (const [index, element] of Array.from(nodes).entries()) {
       if (++count > 20_000) { limited = true; return }
       const identity = element.id || element.getAttribute("name") || `${element.tagName.toLowerCase()}-${index}`

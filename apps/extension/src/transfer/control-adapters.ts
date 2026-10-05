@@ -159,7 +159,7 @@ class NativeAdapter implements ControlAdapter {
     if (first.type === "radio") for (const element of elements as HTMLInputElement[]) set(element, "checked", element.value === expected)
     else if (first.type === "checkbox") set(first, "checked", expected)
     else set(first, "value", expected ?? "")
-    const changed = first.type === "radio" ? elements.find((element) => (element as HTMLInputElement).value === expected)! : first
+    const changed = first.type === "radio" ? elements.find((element) => (element as HTMLInputElement).value === expected) ?? first : first
     changed.dispatchEvent(new realm.Event("input", { bubbles: true, composed: true }))
     changed.dispatchEvent(new realm.Event("change", { bubbles: true, composed: true }))
   }
