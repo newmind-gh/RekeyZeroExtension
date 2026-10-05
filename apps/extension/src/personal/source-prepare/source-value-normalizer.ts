@@ -1,7 +1,7 @@
 import type { Field, Value } from "../../transfer/types"
 
 export function isBlankSourceValue(value: Value): boolean {
-  return value === null || value === false || (typeof value === "string" && !value.trim())
+  return value === null || (typeof value === "string" && !value.trim())
 }
 const aliases: Record<string, string> = {
   "new south wales": "nsw", victoria: "vic", queensland: "qld", "south australia": "sa",

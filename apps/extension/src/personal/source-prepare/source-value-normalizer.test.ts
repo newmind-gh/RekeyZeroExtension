@@ -36,7 +36,7 @@ describe("source value normalization", () => {
     expect(normalizeSourceValue("x".repeat(10_001), field("text"))).toBeUndefined()
   })
   it("distinguishes blanks from populated values", () => {
-    for (const value of [null, "", "  ", false]) expect(isBlankSourceValue(value)).toBe(true)
-    for (const value of ["0", "false", true, "Existing value"]) expect(isBlankSourceValue(value)).toBe(false)
+    for (const value of [null, "", "  "]) expect(isBlankSourceValue(value)).toBe(true)
+    for (const value of [false, "0", "false", true, "Existing value"]) expect(isBlankSourceValue(value)).toBe(false)
   })
 })

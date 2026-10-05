@@ -3,17 +3,17 @@ import { transferCommand } from "../../transfer/controller"
 import { guardedPageRequest } from "../../transfer/guarded-page-client"
 import type { Field, Observation, PageCommand, Session, Snapshot } from "../../transfer/types"
 import type { PersonalModelProvider, ModelRequest } from "../ai/model-provider"
-import { prepareSource, undoSourcePrepare, clearSourcePrepare, safePrepareError, sourcePrepareEdited } from "./source-prepare-service"
-import { loadSourcePrepare } from "./source-prepare-store"
-import type { ParsedDocument } from "./source-prepare-session"
+import { prepareSource, undoSourcePrepare, clearSourcePrepare, safePrepareError } from "./source-prepare-service"
+import { loadSourcePrepare, sourceDocumentsForExtraction, PREPARE_DRAFT_PREFIX } from "./source-prepare-store"
+import type { PreparedDocument } from "./source-prepare-session"
 
 vi.mock("../../transfer/controller", () => ({ transferCommand: vi.fn() }))
 vi.mock("../../transfer/guarded-page-client", () => ({ guardedPageRequest: vi.fn() }))
 const values: Record<string, unknown> = {}
 let observation: Observation
 let transfer: Session
-const document: ParsedDocument = { id: "doc-1", name: "evidence.txt", mediaType: "text/plain", size: 100,
-  textHash: "a".repeat(64), pages: [{ text: "Organisation: Example Pty Ltd\nState: NSW\nTurnover: $12.5m\nPRIVATE_DOCUMENT_447" }] }
+const document: PreparedDocument = { id: "doc-1", name: "evidence.txt", mediaType: "text/plain", size: 100,
+  textHash: "a".repeat(64), markdown: "Organisation: Example Pty Ltd\nState: NSW\nTurnover: $12.5m\nPRIVATE_DOCUMENT_447", privacy: { findings: [], redactedMarkdown: "Organisation: Example Pty Ltd\nState: NSW\nTurnover: $12.5m\nPRIVATE_DOCUMENT_447" } }
 function field(id: string, label: string, value = "", type = "text"): Field {
   return { id, label, value, type, display: value, group: "Organisation", options: type === "select" ? [{ value: "", label: "Choose" }, { value: "NSW", label: "NSW" }, { value: "VIC", label: "VIC" }] : [],
     templateKey: id, instanceKey: id, templateStable: true, instanceStable: true, ambiguousInObservation: false, writable: true, required: false, reusable: true }
@@ -55,14 +55,24 @@ beforeEach(() => {
       target.value = action.expected
       return { ok: true, action: { ...action, status: "filled_verified", observed: action.expected } } as never
     }
-    return { ok: true, envelope: {} } as never
+    return { ok: true, envelope: {}, sourceAnnotationShown: operation === "annotate_source" } as never
   })
 })
 describe("blank-only source preparation", () => {
+  it("loads only processed documents selected by ID from the current tab's trusted draft", async () => {
+    values[`${PREPARE_DRAFT_PREFIX}7`] = [document]
+    values[`${PREPARE_DRAFT_PREFIX}8`] = [{ ...document, id: "other-session" }]
+    expect(await sourceDocumentsForExtraction(7, [document.id])).toEqual([document])
+    await expect(sourceDocumentsForExtraction(7, ["other-session"])).rejects.toThrow("Privacy processing could not complete")
+    values[`${PREPARE_DRAFT_PREFIX}7`] = [{ ...document, privacy: undefined }]
+    await expect(sourceDocumentsForExtraction(7, [document.id])).rejects.toThrow("Privacy processing could not complete")
+  })
   it("extracts only blank fields, fills via the existing guarded page API, and stores session-only data", async () => {
     const model = provider()
     const result = await prepareSource([document], "shared-selected-model", model)
-    expect(result.summary).toMatchObject({ filled: 3, preserved: 1, invalid: 0 })
+    expect(result.summary).toMatchObject({ filled: 3, preserved: 0, invalid: 0 })
+    expect(result.annotationsFailed).toBe(0)
+    expect((await loadSourcePrepare(7))?.results).toHaveLength(3)
     expect(observation.fields.map((field) => field.value)).toEqual(["Example Pty Ltd", "12500000", "NSW", "PRIVATE_EXISTING_991"])
     const calls = vi.mocked(guardedPageRequest).mock.calls.filter((call) => call[3] === "apply")
     expect(calls).toHaveLength(3)
@@ -76,9 +86,28 @@ describe("blank-only source preparation", () => {
   })
   it("preserves a field populated during extraction and marks conflicting evidence", async () => {
     const result = await prepareSource([document], "shared-model", provider(undefined, () => { observation.fields[0].value = "User's new organisation" }))
-    expect(result.summary).toMatchObject({ filled: 2, preserved: 1, conflicts: 1 })
+    expect(result.summary).toMatchObject({ filled: 2, preserved: 0, conflicts: 1 })
     expect(observation.fields[0].value).toBe("User's new organisation")
     expect(vi.mocked(guardedPageRequest).mock.calls.some((call) => call[3] === "annotate_source" && call[4]?.sourceReview?.status === "conflict")).toBe(true)
+  })
+  it("treats an unchecked checkbox as populated and excludes it from extraction", async () => {
+    observation.fields.push({ ...field("subscribed", "Subscribed", "", "checkbox"), value: false })
+    const model = provider()
+    const result = await prepareSource([document], "shared-model", model)
+    expect(result.summary).toMatchObject({ filled: 3, preserved: 0 })
+    expect(JSON.stringify(vi.mocked(model.completeJson).mock.calls[0][0].input)).not.toContain("Subscribed")
+    expect(observation.fields[4].value).toBe(false)
+    expect(vi.mocked(guardedPageRequest).mock.calls.filter((call) => call[3] === "apply").every((call) => call[4]?.plan?.actions[0].field.id !== "subscribed")).toBe(true)
+  })
+  it("preserves false if an explicitly unset boolean becomes false during extraction", async () => {
+    observation.fields.push({ ...field("subscribed", "Subscribed", "", "checkbox"), value: null })
+    const evidence = { ...document, markdown: `${document.markdown}\nSubscribed: Yes`, privacy: { findings: [], redactedMarkdown: `${document.markdown}\nSubscribed: Yes` } }
+    const result = await prepareSource([evidence], "shared-model", provider([
+      { fieldKey: "field_004", status: "found", value: true, evidence: [{ documentId: "doc-1", quote: "Subscribed: Yes" }] },
+    ], () => { observation.fields[4].value = false }))
+    expect(result.summary).toMatchObject({ filled: 0, conflicts: 1 })
+    expect(observation.fields[4].value).toBe(false)
+    expect(vi.mocked(guardedPageRequest).mock.calls.some((call) => call[3] === "apply")).toBe(false)
   })
   it("skips invalid, ambiguous, and not-found decisions", async () => {
     const result = await prepareSource([document], "shared-model", provider([
@@ -110,12 +139,32 @@ describe("blank-only source preparation", () => {
   it("undo restores untouched AI values and preserves user edits with an exact-value guard", async () => {
     const result = await prepareSource([document], "shared-model", provider())
     observation.fields[0].value = "User edited organisation"
-    await sourcePrepareEdited(result.sessionId, "field_001", 7)
-    expect((await loadSourcePrepare(7))?.results.find((result) => result.fieldKey === "field_001")?.reviewState).toBe("user_edited")
     const undone = await undoSourcePrepare(result.sessionId)
     expect(undone.undoSummary).toEqual({ restored: 2, preserved: 1, stale: 0 })
     expect(observation.fields.map((field) => field.value)).toEqual(["User edited organisation", "", "", "PRIVATE_EXISTING_991"])
     expect(vi.mocked(guardedPageRequest).mock.calls.filter((call) => call[3] === "apply" && call[4]?.requireExactValue)).toHaveLength(2)
+  })
+  it("counts unavailable annotations without failing or rolling back verified fills", async () => {
+    const original = vi.mocked(guardedPageRequest).getMockImplementation()!
+    let annotations = 0
+    vi.mocked(guardedPageRequest).mockImplementation(async (...args) => {
+      if (args[3] === "annotate_source") {
+        if (++annotations === 1) throw new Error("PRIVATE_DOCUMENT_447")
+        if (annotations === 2) return { ok: true, envelope: {}, sourceAnnotationShown: false } as never
+      }
+      return original(...args)
+    })
+    const result = await prepareSource([document], "shared-model", provider())
+    expect(result.summary.filled).toBe(3)
+    expect(result.status).toBe("prepared")
+    expect(result.annotationsFailed).toBe(2)
+    expect((await loadSourcePrepare(7))?.results.map((result) => result.annotationStatus)).toEqual(["unavailable", "unavailable", "shown"])
+    expect(result.canUndo).toBe(true)
+  })
+  it("counts preservation only when a blank field receives a value during extraction", async () => {
+    const result = await prepareSource([document], "shared-model", provider(undefined, () => { observation.fields[0].value = "Example Pty Ltd" }))
+    expect(result.summary).toMatchObject({ filled: 2, preserved: 1, conflicts: 0 })
+    expect((await loadSourcePrepare(7))?.results).toHaveLength(3)
   })
   it("does not undo through replaced controls or a new page", async () => {
     const result = await prepareSource([document], "shared-model", provider())

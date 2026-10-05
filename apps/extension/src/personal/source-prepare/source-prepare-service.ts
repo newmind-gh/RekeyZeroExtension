@@ -2,12 +2,13 @@ import { guardedPageRequest } from "../../transfer/guarded-page-client"
 import { transferCommand } from "../../transfer/controller"
 import type { Action, Field, Observation, Plan, Session } from "../../transfer/types"
 import type { PersonalModelProvider } from "../ai/model-provider"
-import { validateParsedDocuments } from "./document-parser"
+import { validatePreparedDocuments } from "./document-converter"
 import { extractSourceFields } from "./source-extractor"
 import { validateSourceExtraction } from "./source-prepare-validator"
 import { isBlankSourceValue, normalizeSourceValue } from "./source-value-normalizer"
 import { allSourcePrepareSessions, deleteSourcePrepare, loadSourcePrepare, saveSourcePrepare, sourcePrepareView, PREPARE_DRAFT_PREFIX } from "./source-prepare-store"
-import type { ParsedDocument, SourcePrepareFieldResult, SourcePrepareSession, SourcePrepareView } from "./source-prepare-session"
+import type { PreparedDocument, SourcePrepareFieldResult, SourcePrepareSession, SourcePrepareView } from "./source-prepare-session"
+import { PRIVACY_PROCESSING_ERROR } from "./privacy-processor"
 
 const active = new Map<number, AbortController>()
 const undoing = new Set<number>()
@@ -36,18 +37,20 @@ async function assertLive(session: SourcePrepareSession, signal: AbortSignal): P
     || (await loadSourcePrepare(session.tabId))?.id !== session.id) throw new Error("The source page changed while extraction was running. Run Prepare Source again.")
 }
 async function annotate(session: SourcePrepareSession, result: SourcePrepareFieldResult, field: Field): Promise<void> {
-  await guardedPageRequest(session.transferId, session.tabId, "source-prepare", "annotate_source", {
+  const reply = await guardedPageRequest(session.transferId, session.tabId, "source-prepare", "annotate_source", {
     documentEpoch: session.observation.epoch, selectedGroups: session.observation.selectedGroups,
     sourceReview: { pageIdentity: session.sourcePageIdentity, sourceFingerprint: session.sourceFingerprint,
       sessionId: session.id, fieldKey: result.fieldKey, fieldId: field.id,
       status: result.status === "conflict" ? "conflict" : "filled", evidence: result.evidence ?? [], appliedValue: field.value },
   }).catch(() => undefined)
+  result.annotationStatus = reply?.sourceAnnotationShown ? "shown" : "unavailable"
 }
 export function safePrepareError(error: unknown): string {
   const message = error instanceof Error ? error.message : ""
   // Never return an arbitrary provider/DOM error containing source values or raw output.
   if (/^(Gemini|OpenAI|Claude|DeepSeek) (rejected the API key|rate limit was reached|returned HTTP \d+)$/.test(message)) return message
   if (new Set([
+    PRIVACY_PROCESSING_ERROR, "This document could not be converted to text.", "Unsupported document format.",
     "Add between 1 and 6 source documents", "Could not read this document", "No readable text was found in this document",
     "These documents are too large for Source Preparation (80,000 characters maximum)", "Source page observation is unavailable",
     "Source preparation was cancelled", "The source page changed while extraction was running. Run Prepare Source again.",
@@ -65,8 +68,8 @@ export async function getSourcePrepare(tabId: number): Promise<SourcePrepareView
   if (["extracting", "filling"].includes(session.status) && !active.has(tabId)) { session.status = "failed"; await saveSourcePrepare(session) }
   return sourcePrepareView(session)
 }
-export async function prepareSource(documents: ParsedDocument[], modelId: string, provider: PersonalModelProvider): Promise<SourcePrepareView> {
-  validateParsedDocuments(documents)
+export async function prepareSource(documents: PreparedDocument[], modelId: string, provider: PersonalModelProvider): Promise<SourcePrepareView> {
+  validatePreparedDocuments(documents)
   const transfer = await transferCommand({ type: "GET_TRANSFER" }) as Session
   if (!transfer.source || transfer.sourceTabId === undefined) throw new Error("Select and observe a source page before preparing it")
   if (transfer.frozen) throw new Error("Start a new batch before preparing the source page")
@@ -88,7 +91,7 @@ export async function prepareSource(documents: ParsedDocument[], modelId: string
     session = { id: crypto.randomUUID(), tabId, transferId: transfer.id, sourcePageIdentity: observation.pageIdentity,
       sourceFingerprint: observation.structure, selectedModelId: modelId, observation, documents,
       fields: blanks.map((field, index) => ({ fieldKey: `field_${String(index + 1).padStart(3, "0")}`, field })),
-      results: eligible.filter((field) => !isBlankSourceValue(field.value)).map((field) => ({ fieldKey: `preserved_${field.id}`, status: "preserved" })),
+      results: [],
       snapshots: previous && samePage(previous.observation, observation) ? previous.snapshots.filter((snapshot) => !snapshot.undone) : [],
       status: "extracting", createdAt: Date.now() }
     if (controller.signal.aborted) throw new Error("Source preparation was cancelled")
@@ -134,14 +137,13 @@ export async function prepareSource(documents: ParsedDocument[], modelId: string
       if (filled?.status === "filled_verified") {
         await assertLive(session, controller.signal)
         session.snapshots.push({ fieldKey: result.fieldKey, field, previousValue: field.value, appliedValue: normalized })
-        result.reviewState = "ai_filled"
         result.status = "filled"
         await saveSourcePrepare(session)
         await annotate(session, result, { ...field, value: normalized })
       } else result.status = filled?.status === "preserved_existing" ? "preserved" : filled?.status === "stale" ? "stale" : "invalid"
     }
     await assertLive(session, controller.signal)
-    session.status = "review"
+    session.status = "prepared"
     await saveSourcePrepare(session)
     // Refresh the canonical page snapshot; profiles never see documents or results.
     await transferCommand({ type: "SET_SOURCE", tabId, group: transfer.source.group }).catch(() => undefined)
@@ -181,7 +183,7 @@ export async function undoSourcePrepare(sessionId: string): Promise<SourcePrepar
       else session.undoSummary.stale++
       if ((await loadSourcePrepare(session.tabId))?.id === session.id) await saveSourcePrepare(session)
     }
-    session.status = "completed"
+    session.status = "undone"
     await assertLive(session, controller.signal)
     await saveSourcePrepare(session)
     await guardedPageRequest(session.transferId, session.tabId, "source-prepare", "clear_source_annotations", { sourcePrepareSessionId: session.id }).catch(() => undefined)
@@ -211,11 +213,4 @@ export async function showSourcePrepareEvidence(sessionId: string, visible: bool
   await guardedPageRequest(session.transferId, session.tabId, "source-prepare", "toggle_source_evidence", {
     documentEpoch: session.observation.epoch, sourcePrepareSessionId: session.id, evidenceVisible: visible,
   })
-}
-export async function sourcePrepareEdited(sessionId: string, fieldKey: string, tabId: number): Promise<void> {
-  if (undoing.has(tabId)) return
-  const session = await loadSourcePrepare(tabId)
-  if (session?.id !== sessionId) return
-  const result = session.results.find((item) => item.fieldKey === fieldKey && item.status === "filled")
-  if (result) { result.reviewState = "user_edited"; await saveSourcePrepare(session) }
 }

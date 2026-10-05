@@ -161,4 +161,4 @@ export type PageCommand = Envelope & {
   selectedGroups?: string[]
   actionId?: string
 }
-export type PageReply = { ok: boolean; error?: string; envelope: Envelope; observation?: Observation; action?: Action }
+export type PageReply = { ok: boolean; error?: string; envelope: Envelope; observation?: Observation; action?: Action; sourceAnnotationShown?: boolean }

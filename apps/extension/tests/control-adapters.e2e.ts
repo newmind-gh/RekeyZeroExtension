@@ -1,7 +1,7 @@
 import { chromium, expect, test } from "@playwright/test"
 import { build } from "esbuild"
 import { startPortalServer } from "../../../tests/extension-portal/server-core.mjs"
-import type { Observation, PageCommand, Plan } from "../src/transfer/types"
+import type { Observation, PageCommand, Plan, Value } from "../src/transfer/types"
 
 test.describe("Bounded deterministic control adapters", () => {
   let portal: Awaited<ReturnType<typeof startPortalServer>>
@@ -20,11 +20,11 @@ test.describe("Bounded deterministic control adapters", () => {
   }
   const observe = (page: import("@playwright/test").Page, groups?: string[]) => page.evaluate((selected) =>
     (window as unknown as { rekeyzeroTest: { observeTransferPage(groups?: string[]): Promise<Observation> } }).rekeyzeroTest.observeTransferPage(selected), groups)
-  async function write(page: import("@playwright/test").Page, observation: Observation, label: string, expected: string) {
+  async function write(page: import("@playwright/test").Page, observation: Observation, label: string, expected: Value, blankOnly = false) {
     const field = observation.fields.find((field) => field.label === label)!
     const plan: Plan = { id: "reviewed-plan", version: 1, snapshotHash: "snapshot", ...observation,
       actions: [{ id: "action", field, before: field.value, expected, status: "ready", reason: "Reviewed by test" }] }
-    const request: PageCommand = { type: "TRANSFER_PAGE", operation: "apply", transferId: "transfer", targetId: "target", tabId: 1, documentEpoch: observation.epoch, requestId: "request", plan, actionId: "action" }
+    const request: PageCommand = { type: "TRANSFER_PAGE", operation: "apply", transferId: "transfer", targetId: "target", tabId: 1, documentEpoch: observation.epoch, requestId: "request", plan, actionId: "action", blankOnly }
     return page.evaluate((request) => (window as unknown as { rekeyzeroTest: { handleTransferPage(request: PageCommand): Promise<import("../src/transfer/types").PageReply> } }).rekeyzeroTest.handleTransferPage(request), request)
   }
   test("observes canonical ARIA options and verifies an exact reviewed selection", async () => {
@@ -37,6 +37,16 @@ test.describe("Bounded deterministic control adapters", () => {
       expect(field.options.map((option) => option.value)).toEqual(["AU-NSW", "AU-VIC"])
       expect((await write(page, observation, "State", "AU-NSW")).action?.status).toBe("filled_verified")
       await expect(page.getByRole("combobox")).toHaveText("New South Wales")
+    } finally { await browser.close() }
+  })
+  test("preserves an unchecked checkbox under the blank-only execution guard", async () => {
+    const { browser, page } = await setup("/adapter-controls")
+    try {
+      await page.locator("body").evaluate((element) => element.insertAdjacentHTML("beforeend", '<label>Subscribed<input type="checkbox" name="subscribed"></label>'))
+      const observation = await observe(page)
+      expect(observation.fields.find((field) => field.label === "Subscribed")?.value).toBe(false)
+      expect((await write(page, observation, "Subscribed", true, true)).action?.status).toBe("preserved_existing")
+      await expect(page.getByLabel("Subscribed")).not.toBeChecked()
     } finally { await browser.close() }
   })
   test("blocks option drift, ambiguous popup ownership, and options with submit actions", async () => {

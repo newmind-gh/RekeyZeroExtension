@@ -1,13 +1,15 @@
 import type { Field, Observation, Value } from "../../transfer/types"
 
-export type ParsedDocument = {
+export type ConvertedDocument = {
   id: string
   name: string
   mediaType: string
   size: number
-  textHash: string
-  pages: Array<{ page?: number; text: string }>
+  markdown: string
 }
+export type PrivacyFinding = { type: string; displayName: string; placeholder: string }
+export type PrivacyResult = { findings: PrivacyFinding[]; redactedMarkdown: string }
+export type PreparedDocument = ConvertedDocument & { privacy: PrivacyResult; textHash: string }
 export type SourceEvidenceReference = { documentId: string; page?: number; quote: string; documentName: string }
 export type SourceExtractionDecision = {
   fieldKey: string
@@ -29,7 +31,7 @@ export type SourcePrepareFieldResult = {
   extractedValue?: SourceExtractionDecision["value"]
   normalizedValue?: Value
   evidence?: SourceEvidenceReference[]
-  reviewState?: "ai_filled" | "user_edited"
+  annotationStatus?: "shown" | "unavailable"
 }
 export type SourceFillSnapshot = {
   fieldKey: string
@@ -44,10 +46,11 @@ export type SourcePrepareSummary = {
 export type SourcePrepareView = {
   sessionId: string
   tabId: number
-  status: "idle" | "extracting" | "filling" | "review" | "completed" | "failed"
+  status: "idle" | "extracting" | "filling" | "prepared" | "undone" | "failed"
   summary: SourcePrepareSummary
   documentNames: string[]
   canUndo: boolean
+  annotationsFailed: number
   undoSummary?: { restored: number; preserved: number; stale: number }
 }
 export type SourcePrepareSession = {
@@ -58,7 +61,7 @@ export type SourcePrepareSession = {
   sourceFingerprint: string
   selectedModelId: string
   observation: Observation
-  documents: ParsedDocument[]
+  documents: PreparedDocument[]
   fields: Array<{ fieldKey: string; field: Field }>
   results: SourcePrepareFieldResult[]
   snapshots: SourceFillSnapshot[]

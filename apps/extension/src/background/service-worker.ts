@@ -17,7 +17,8 @@ import { logPersonalRuntimeError } from "../personal/storage/runtime-error-log"
 import { invalidateTransferTab, resetTransferRuntime, transferCommand, transferTabReady } from "../transfer/controller"
 import type { Command as TransferCommand, Session } from "../transfer/types"
 import { localModel } from "../personal/ai/model-registry"
-import { clearSourcePrepare, getSourcePrepare, prepareSource, safePrepareError, showSourcePrepareEvidence, sourcePrepareEdited, undoSourcePrepare } from "../personal/source-prepare/source-prepare-service"
+import { clearSourcePrepare, getSourcePrepare, prepareSource, safePrepareError, showSourcePrepareEvidence, undoSourcePrepare } from "../personal/source-prepare/source-prepare-service"
+import { sourceDocumentsForExtraction } from "../personal/source-prepare/source-prepare-store"
 
 const API_MODEL_STORAGE_KEY = "rekeyzeroPersonalApiModelId"
 const LEGACY_API_MODEL_IDS: Record<string, string> = {
@@ -184,7 +185,10 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
     const config = await builtinApiModelConfig(modelId)
     if (!config.hasKey) throw new Error(`Select and configure ${definition.displayName} before preparing the source`)
     if (!await chrome.permissions.contains({ origins: [`${definition.origin}/*`] })) throw new Error("Allow this website before using its AI provider")
-    return prepareSource(request.documents, modelId, new DirectApiProvider(definition, config.model))
+    const source = await transferCommand({ type: "GET_TRANSFER" }) as Session
+    if (source.sourceTabId === undefined) throw new Error("Select and observe a source page before preparing it")
+    const documents = await sourceDocumentsForExtraction(source.sourceTabId, request.documentIds)
+    return prepareSource(documents, modelId, new DirectApiProvider(definition, config.model))
   }
   if (request.type === "PERSONAL_UNDO_PREPARE_SOURCE") return undoSourcePrepare(request.sessionId)
   if (request.type === "PERSONAL_CLEAR_PREPARE_SOURCE") return clearSourcePrepare(request.sessionId)
@@ -325,11 +329,7 @@ chrome.tabs.onUpdated.addListener((tabId, changes) => {
 })
 chrome.tabs.onRemoved.addListener((tabId) => { void clearSourcePrepare(undefined, tabId).catch(() => undefined) })
 
-chrome.runtime.onMessage.addListener((request: WorkerRequest, sender, sendResponse) => {
-  if (request.type === "PERSONAL_PREPARE_SOURCE_EDITED") {
-    if (sender.tab?.id !== undefined) void sourcePrepareEdited(request.sessionId, request.fieldKey, sender.tab.id).catch(() => undefined)
-    sendResponse({ ok: true, data: null }); return false
-  }
+chrome.runtime.onMessage.addListener((request: WorkerRequest, _sender, sendResponse) => {
   void handleWorkspaceRequest(request)
     .then((data) => sendResponse({ ok: true, data } satisfies WorkerResponse<unknown>))
     .catch(async (error) => {

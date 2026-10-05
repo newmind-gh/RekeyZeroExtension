@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.82",
-    "fflate": "0.8.3",
+    "@ossredact/core": "0.2.1",
+    "docling.rs-wasm": "1.93.5",
     "lucide-react": "^0.540.0",
     "pdfjs-dist": "6.4.299",
     "react": "^19.1.1",
@@ -37,6 +38,7 @@
     "@vitejs/plugin-react": "^5.0.2",
     "esbuild": "0.28.2",
     "fake-indexeddb": "^6.2.5",
+    "fflate": "0.8.3",
     "secretlint": "^10.2.2",
     "typescript": "^5.9.2",
     "vite": "^7.1.3",

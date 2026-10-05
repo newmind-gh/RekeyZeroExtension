@@ -242,9 +242,10 @@ export async function handleTransferPage(request: PageCommand): Promise<PageRepl
       const current = await observeTransferPage(request.selectedGroups)
       const field = current.fields.find((candidate) => candidate.id === mark.fieldId)
       const binding = registry.get(mark.fieldId)
+      let sourceAnnotationShown = false
       if (!current.blockedReason && current.pageIdentity === mark.pageIdentity && current.structure === mark.sourceFingerprint
-        && field && binding && Object.is(field.value, mark.appliedValue)) markSourceReview(mark, binding.control, binding.adapter)
-      return { ok: true, envelope }
+        && field && binding && Object.is(field.value, mark.appliedValue)) sourceAnnotationShown = markSourceReview(mark, binding.control)
+      return { ok: true, envelope, sourceAnnotationShown }
     }
     if (request.operation === "clear_source_annotations") { clearSourceAnnotations(request.sourcePrepareSessionId); return { ok: true, envelope } }
     if (request.operation === "toggle_source_evidence" && request.sourcePrepareSessionId) {
