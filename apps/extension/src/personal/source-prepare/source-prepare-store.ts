@@ -4,7 +4,9 @@ import { validatePreparedDocuments } from "./document-converter"
 import { PRIVACY_PROCESSING_ERROR } from "./privacy-processor"
 
 export const SOURCE_PREPARE_PREFIX = "rekeyzeroSourcePrepare:"
-export const PREPARE_DRAFT_PREFIX = "rekeyzeroSourcePrepareDraft:"
+export const LEGACY_PREPARE_DRAFT_PREFIX = "rekeyzeroSourcePrepareDraft:"
+// Old, deterministic-only drafts cannot cross the v2 provider boundary.
+export const PREPARE_DRAFT_PREFIX = `${LEGACY_PREPARE_DRAFT_PREFIX}v2:`
 export async function sourceDocumentsForExtraction(tabId: number, documentIds: string[]): Promise<PreparedDocument[]> {
   if (!Array.isArray(documentIds) || !documentIds.length || documentIds.length > 6 || new Set(documentIds).size !== documentIds.length) throw new Error("Add between 1 and 6 source documents")
   // Accept only IDs from the message. Content comes from the trusted local

@@ -15,7 +15,7 @@ try {
   manifest.host_permissions = ["http://127.0.0.1/*"]
   await writeFile(join(stage, "manifest.json"), JSON.stringify(manifest))
   await mkdir(join(root, "dist/demo-video"), { recursive: true })
-  context = await chromium.launchPersistentContext("", { channel: "chromium", headless: false,
+  context = await chromium.launchPersistentContext("", { channel: "chromium", headless: process.argv.includes("--headless"),
     viewport: { width: 1000, height: 800 }, recordVideo: { dir: join(root, "dist/demo-video"), size: { width: 1000, height: 800 } },
     args: [`--disable-extensions-except=${stage}`, `--load-extension=${stage}`] })
   const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker")
@@ -31,6 +31,7 @@ try {
   await pause(4000)
   await page.goto(`chrome-extension://${new URL(worker.url()).host}/sidepanel.html`)
   const sourceId = await page.evaluate(async (url) => (await chrome.tabs.query({ url }))[0].id, source.url())
+  await page.getByText("Use Non-AI ZeroKey Profile", { exact: true }).click()
   const section = page.locator("section.card").filter({ has: page.getByRole("heading", { name: "ZeroKey Profile", exact: true }) })
   await section.getByRole("button", { name: "Create Profile" }).click()
   await page.getByLabel("Source tab").selectOption(String(sourceId))

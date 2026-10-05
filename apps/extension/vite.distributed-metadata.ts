@@ -23,7 +23,7 @@ function packageRoot(moduleId: string): string | null {
   return `${normalized.slice(0, markerAt + marker.length)}${packageSegments.join("/")}`
 }
 
-export function distributedDependencyMetadata(buildPart: "application" | "content-script"): Plugin {
+export function distributedDependencyMetadata(buildPart: "application" | "content-script" | "privacy-worker"): Plugin {
   return {
     name: `rekeyzero-distributed-dependencies-${buildPart}`,
     generateBundle(_options, bundle) {

@@ -6,7 +6,7 @@ import { validateSourceExtraction } from "./source-prepare-validator"
 import { sourceExtractionRequest } from "./source-extraction-prompt"
 
 const documents: PreparedDocument[] = [{ id: "doc-1", name: "application.pdf", mediaType: "application/pdf", size: 200,
-  textHash: "a".repeat(64), markdown: "Organisation: Example Pty Ltd\nState: NSW", privacy: { findings: [], redactedMarkdown: "Organisation: Example Pty Ltd\nState: NSW" } }]
+  textHash: "a".repeat(64), markdown: "Organisation: Example Pty Ltd\nState: NSW", privacy: { findings: [], entityMap: {}, redactedMarkdown: "Organisation: Example Pty Ltd\nState: NSW" } }]
 const fields = [{ fieldKey: "field_001", field: { label: "Organisation", value: "" } as Field }]
 const found = { fieldKey: "field_001", status: "found", value: "Example Pty Ltd", evidence: [{ documentId: "doc-1", page: null, quote: "Organisation: Example Pty Ltd" }] }
 describe("source extraction validation", () => {
@@ -28,13 +28,13 @@ describe("source extraction validation", () => {
   it("rejects malformed outputs", () => {
     for (const output of [null, [], {}, { decisions: "wrong" }]) expect(() => validateSourceExtraction(output, fields, documents)).toThrow("invalid extraction result")
   })
-  it("validates evidence against redacted Markdown and rejects placeholder values", () => {
+  it("validates redacted evidence and accepts known atomic placeholders", () => {
     const prepared = [{ ...documents[0], markdown: "Email: customer@example.com",
-      privacy: { redactedMarkdown: "Email: <EMAIL_001>", findings: [{ type: "email", displayName: "Email", placeholder: "<EMAIL_001>" }] } }]
+      privacy: { entityMap: { "[EMAIL_1]": "customer@example.com" }, redactedMarkdown: "Email: [EMAIL_1]", findings: [{ type: "EMAIL", displayName: "Email", placeholder: "[EMAIL_1]" }] } }]
     expect(validateSourceExtraction({ decisions: [{ ...found, value: "customer@example.com",
       evidence: [{ documentId: "doc-1", quote: "Email: customer@example.com" }] }] }, fields, prepared)[0].status).toBe("invalid")
-    expect(validateSourceExtraction({ decisions: [{ ...found, value: "<EMAIL_001>",
-      evidence: [{ documentId: "doc-1", quote: "Email: <EMAIL_001>" }] }] }, fields, prepared)[0].status).toBe("invalid")
+    expect(validateSourceExtraction({ decisions: [{ ...found, value: "[EMAIL_1]",
+      evidence: [{ documentId: "doc-1", quote: "Email: [EMAIL_1]" }] }] }, fields, prepared)[0].status).toBe("filled")
   })
   it("sends document content and metadata only, with no populated source values or filenames", () => {
     const request = sourceExtractionRequest([{ fieldKey: "field_001", label: "Organisation", section: "Customer", controlType: "text", required: false, options: [] }], documents)
@@ -45,7 +45,7 @@ describe("source extraction validation", () => {
   })
   it("enforces document count, text limits, readable text, page bounds, and unique IDs", () => {
     expect(() => validatePreparedDocuments(documents)).not.toThrow()
-    for (const invalid of [[], [documents[0], documents[0]], [{ ...documents[0], markdown: "", privacy: { findings: [], redactedMarkdown: "" } }],
+    for (const invalid of [[], [documents[0], documents[0]], [{ ...documents[0], markdown: "", privacy: { findings: [], entityMap: {}, redactedMarkdown: "" } }],
       [{ ...documents[0], markdown: "x".repeat(80_001) }], [{ ...documents[0], privacy: undefined }],
       Array.from({ length: 7 }, (_, index) => ({ ...documents[0], id: String(index) }))]) expect(() => validatePreparedDocuments(invalid)).toThrow()
   })

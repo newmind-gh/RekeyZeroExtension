@@ -1,12 +1,13 @@
 import { hash } from "../../transfer/planner"
 import type { ConvertedDocument, PreparedDocument } from "./source-prepare-session"
 import { processPrivacy, PRIVACY_PROCESSING_ERROR } from "./privacy-processor"
+import { validPrivacyResult } from "./privacy-types"
 
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 export const MAX_DOCUMENT_CHARACTERS = 80_000
 export const MAX_SOURCE_DOCUMENTS = 6
 export const SOURCE_DOCUMENT_ACCEPT = ".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.html,.htm,.csv,.eml"
-const extensions = new Set(SOURCE_DOCUMENT_ACCEPT.split(",").map((extension) => extension.slice(1)).concat("msg"))
+const extensions = new Set(SOURCE_DOCUMENT_ACCEPT.split(",").map((extension) => extension.slice(1)))
 export const SCANNED_PDF_ERROR = "This PDF appears to be scanned or image-only. Scanned PDFs are not supported yet."
 const CONVERSION_ERROR = "This document could not be converted to text."
 const LARGE_DOCUMENT_ERROR = "These documents are too large for Source Preparation (80,000 characters maximum)"
@@ -36,8 +37,8 @@ export async function convertSourceDocument(file: File): Promise<ConvertedDocume
     markdown = module.convert(new Uint8Array(await file.arrayBuffer()), `document.${converterExtension}`, "md", "placeholder")
   } catch (error) {
     const message = error instanceof Error ? error.message : ""
-    if (message === "Unsupported document format.") throw new Error(message)
-    if (extension === "pdf" && /no (?:embedded )?text layer|no (?:usable|extractable) text|scanned|image.only|OCR/i.test(message)) {
+    if (extension !== "pdf" && message === "Unsupported document format.") throw new Error(message)
+    if (extension === "pdf") {
       // Confirmed compatibility issue in 1.93.5: valid text PDFs can be rejected
       // as missing a text layer. Retain the existing local PDF.js text reader.
       try { markdown = await (await import("./pdf-parser")).parsePdf(file) }
@@ -70,10 +71,7 @@ export function validatePreparedDocuments(input: unknown): asserts input is Prep
       || typeof document.textHash !== "string" || !/^[a-f0-9]{64}$/.test(document.textHash)) throw new Error(CONVERSION_ERROR)
     ids.add(document.id)
     const privacy = document.privacy
-    if (!privacy || typeof privacy.redactedMarkdown !== "string" || !privacy.redactedMarkdown.trim() || !Array.isArray(privacy.findings)
-      || privacy.findings.some((finding: unknown) => !finding || typeof finding !== "object" || !("type" in finding) || typeof finding.type !== "string"
-        || !("displayName" in finding) || typeof finding.displayName !== "string"
-        || !("placeholder" in finding) || typeof finding.placeholder !== "string" || !finding.placeholder)) throw new Error(PRIVACY_PROCESSING_ERROR)
+    if (!validPrivacyResult(privacy)) throw new Error(PRIVACY_PROCESSING_ERROR)
     characters += Math.max(document.markdown.length, privacy.redactedMarkdown.length)
     if (characters > MAX_DOCUMENT_CHARACTERS) throw new Error(LARGE_DOCUMENT_ERROR)
   }

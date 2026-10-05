@@ -13,7 +13,7 @@ const values: Record<string, unknown> = {}
 let observation: Observation
 let transfer: Session
 const document: PreparedDocument = { id: "doc-1", name: "evidence.txt", mediaType: "text/plain", size: 100,
-  textHash: "a".repeat(64), markdown: "Organisation: Example Pty Ltd\nState: NSW\nTurnover: $12.5m\nPRIVATE_DOCUMENT_447", privacy: { findings: [], redactedMarkdown: "Organisation: Example Pty Ltd\nState: NSW\nTurnover: $12.5m\nPRIVATE_DOCUMENT_447" } }
+  textHash: "a".repeat(64), markdown: "Organisation: Example Pty Ltd\nState: NSW\nTurnover: $12.5m\nPRIVATE_DOCUMENT_447", privacy: { findings: [], entityMap: {}, redactedMarkdown: "Organisation: Example Pty Ltd\nState: NSW\nTurnover: $12.5m\nPRIVATE_DOCUMENT_447" } }
 function field(id: string, label: string, value = "", type = "text"): Field {
   return { id, label, value, type, display: value, group: "Organisation", options: type === "select" ? [{ value: "", label: "Choose" }, { value: "NSW", label: "NSW" }, { value: "VIC", label: "VIC" }] : [],
     templateKey: id, instanceKey: id, templateStable: true, instanceStable: true, ambiguousInObservation: false, writable: true, required: false, reusable: true }
@@ -59,6 +59,33 @@ beforeEach(() => {
   })
 })
 describe("blank-only source preparation", () => {
+  it("fills locally restored values, retains redacted evidence and uses final values for safe Undo", async () => {
+    const token = "[PERSON_1]"
+    const privateDocument = { ...document, markdown: "Applicant: John Smith\nPRIVATE_DOCUMENT_447", privacy: {
+      redactedMarkdown: `Applicant: ${token}\nPRIVATE_DOCUMENT_447`, findings: [{ type: "PERSON", displayName: "Person", placeholder: token }],
+      entityMap: { [token]: "John Smith" },
+    } }
+    const model = provider([{ fieldKey: "field_001", status: "found", value: token,
+      evidence: [{ documentId: document.id, quote: `Applicant: ${token}` }] }])
+    const result = await prepareSource([privateDocument], "shared-selected-model", model)
+    expect(result.summary.filled).toBe(1)
+    expect(observation.fields[0].value).toBe("John Smith")
+    expect(model.completeJson).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(vi.mocked(model.completeJson).mock.calls)).not.toContain("John Smith")
+    const session = await loadSourcePrepare(7)
+    expect(session?.results[0]).toMatchObject({ extractedValue: token, resolvedValue: "John Smith", evidence: [{ quote: `Applicant: ${token}` }] })
+    expect(session?.snapshots[0].appliedValue).toBe("John Smith")
+    await undoSourcePrepare(result.sessionId)
+    expect(observation.fields[0].value).toBe("")
+    await clearSourcePrepare()
+    expect(await loadSourcePrepare(7)).toBeNull()
+  })
+  it("does not accept a draft prepared by the former privacy engine", async () => {
+    values["rekeyzeroSourcePrepareDraft:7"] = [document]
+    await expect(sourceDocumentsForExtraction(7, [document.id])).rejects.toThrow()
+    await clearSourcePrepare()
+    expect(values["rekeyzeroSourcePrepareDraft:7"]).toBeUndefined()
+  })
   it("loads only processed documents selected by ID from the current tab's trusted draft", async () => {
     values[`${PREPARE_DRAFT_PREFIX}7`] = [document]
     values[`${PREPARE_DRAFT_PREFIX}8`] = [{ ...document, id: "other-session" }]
@@ -101,7 +128,7 @@ describe("blank-only source preparation", () => {
   })
   it("preserves false if an explicitly unset boolean becomes false during extraction", async () => {
     observation.fields.push({ ...field("subscribed", "Subscribed", "", "checkbox"), value: null })
-    const evidence = { ...document, markdown: `${document.markdown}\nSubscribed: Yes`, privacy: { findings: [], redactedMarkdown: `${document.markdown}\nSubscribed: Yes` } }
+    const evidence = { ...document, markdown: `${document.markdown}\nSubscribed: Yes`, privacy: { findings: [], entityMap: {}, redactedMarkdown: `${document.markdown}\nSubscribed: Yes` } }
     const result = await prepareSource([evidence], "shared-model", provider([
       { fieldKey: "field_004", status: "found", value: true, evidence: [{ documentId: "doc-1", quote: "Subscribed: Yes" }] },
     ], () => { observation.fields[4].value = false }))

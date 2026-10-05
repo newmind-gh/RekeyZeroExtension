@@ -48,7 +48,7 @@ jobs:
           REKEYZERO_EXTENSION_OUTPUT_DIRECTORY: ${{ runner.temp }}/rekeyzero-release
         run: |
           unzip -q ../../dist/rekeyzero-personal.zip -d "$REKEYZERO_EXTENSION_OUTPUT_DIRECTORY"
-          xvfb-run --auto-servernum npx playwright test tests/personal-orchestration.e2e.ts tests/control-adapters.e2e.ts
+          xvfb-run --auto-servernum npx playwright test tests/personal-orchestration.e2e.ts tests/control-adapters.e2e.ts tests/source-prepare.e2e.ts tests/privacy-engine.e2e.ts
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:

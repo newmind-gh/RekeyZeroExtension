@@ -1,0 +1,45 @@
+diff --git a/node_modules/@doccloak/core/dist/providers/gliner.js b/node_modules/@doccloak/core/dist/providers/gliner.js
+--- a/node_modules/@doccloak/core/dist/providers/gliner.js
++++ b/node_modules/@doccloak/core/dist/providers/gliner.js
+@@ -156,6 +156,7 @@
+         this.progressCallback = null;
+         this.threshold = DEFAULT_THRESHOLD;
+         this.customLabels = [];
++        this.enabledLabels = null;
+         this.verification = null;
+         this.env = env;
+     }
+@@ -185,7 +186,14 @@
+     /**
+      * Get the combined list of all active labels (built-in + custom).
+      */
++    setEnabledLabels(labels) {
++        if (!Array.isArray(labels) || labels.length === 0 || labels.some((label) => typeof label !== 'string' || !label.trim()))
++            throw new Error('Enabled labels must be non-empty strings');
++        this.enabledLabels = [...new Set(labels)];
++    }
+     getActiveLabels() {
++        if (this.enabledLabels)
++            return this.enabledLabels;
+         return [...DEFAULT_PII_LABELS, ...this.customLabels];
+     }
+     /**
+diff --git a/node_modules/@doccloak/core/dist/providers/gliner.d.ts b/node_modules/@doccloak/core/dist/providers/gliner.d.ts
+--- a/node_modules/@doccloak/core/dist/providers/gliner.d.ts
++++ b/node_modules/@doccloak/core/dist/providers/gliner.d.ts
+@@ -48,6 +48,7 @@
+     private progressCallback;
+     private threshold;
+     private customLabels;
++    private enabledLabels;
+     private verification;
+     constructor(env: CoreEnv);
+     /**
+@@ -64,6 +65,7 @@
+     /**
+      * Get the combined list of all active labels (built-in + custom).
+      */
++    setEnabledLabels(labels: string[]): void;
+     private getActiveLabels;
+     /**
+      * Get user-defined custom labels.

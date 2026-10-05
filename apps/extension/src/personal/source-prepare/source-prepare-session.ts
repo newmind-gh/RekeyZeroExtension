@@ -7,8 +7,8 @@ export type ConvertedDocument = {
   size: number
   markdown: string
 }
-export type PrivacyFinding = { type: string; displayName: string; placeholder: string }
-export type PrivacyResult = { findings: PrivacyFinding[]; redactedMarkdown: string }
+import type { PrivacyResult } from "./privacy-types"
+export type { PrivacyFinding, PrivacyResult, PrivacyEntityMap } from "./privacy-types"
 export type PreparedDocument = ConvertedDocument & { privacy: PrivacyResult; textHash: string }
 export type SourceEvidenceReference = { documentId: string; page?: number; quote: string; documentName: string }
 export type SourceExtractionDecision = {
@@ -29,6 +29,7 @@ export type SourcePrepareFieldResult = {
   fieldKey: string
   status: "filled" | "preserved" | "conflict" | "ambiguous" | "invalid" | "not_found" | "stale"
   extractedValue?: SourceExtractionDecision["value"]
+  resolvedValue?: SourceExtractionDecision["value"]
   normalizedValue?: Value
   evidence?: SourceEvidenceReference[]
   annotationStatus?: "shown" | "unavailable"

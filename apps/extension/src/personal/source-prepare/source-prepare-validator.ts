@@ -1,5 +1,6 @@
 import type { Field } from "../../transfer/types"
 import type { PreparedDocument, SourceExtractionDecision, SourcePrepareFieldResult } from "./source-prepare-session"
+import { validExtractionPlaceholder } from "./placeholder-resolver"
 
 const compact = (text: string) => text.replace(/\s+/g, " ").trim()
 export function validateSourceExtraction(output: unknown, fields: Array<{ fieldKey: string; field: Field }>, documents: PreparedDocument[]): SourcePrepareFieldResult[] {
@@ -17,17 +18,17 @@ export function validateSourceExtraction(output: unknown, fields: Array<{ fieldK
     if (decision.status !== "found" || decision.value === null || !["string", "number", "boolean"].includes(typeof decision.value)
       || (typeof decision.value === "number" && !Number.isFinite(decision.value))
       || !Array.isArray(decision.evidence) || !decision.evidence.length || decision.evidence.length > 5) return { fieldKey, status: "invalid" }
-    if (documents.some((document) => document.privacy.findings.some((finding) => String(decision.value).includes(finding.placeholder)))) return { fieldKey, status: "invalid" }
     const evidence = decision.evidence.flatMap((reference) => {
       if (!reference || typeof reference !== "object" || typeof reference.quote !== "string" || !compact(reference.quote) || reference.quote.length > 400) return []
+      if (Object.keys(reference).some((key) => !["documentId", "page", "quote"].includes(key))) return []
       const document = documents.find((candidate) => candidate.id === reference.documentId)
       const page = reference.page ?? undefined
       if (!document || page !== undefined) return []
       if (!compact(document.privacy.redactedMarkdown).includes(compact(reference.quote))) return []
       return [{ documentId: document.id, documentName: document.name, quote: compact(reference.quote) }]
     })
-    return evidence.length === decision.evidence.length
-      ? { fieldKey, status: "filled", extractedValue: decision.value, evidence }
-      : { fieldKey, status: "invalid" }
+    const result: SourcePrepareFieldResult = { fieldKey, status: "filled", extractedValue: decision.value, evidence }
+    return evidence.length === decision.evidence.length && validExtractionPlaceholder(result, documents)
+      ? result : { fieldKey, status: "invalid" }
   })
 }

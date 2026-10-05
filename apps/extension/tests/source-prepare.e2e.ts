@@ -28,6 +28,7 @@ const form = `<!doctype html><html><head><title>Prepare Source test</title><styl
 
 
 test.describe.serial("AI Prepare Source", () => {
+  test.describe.configure({ timeout: 300_000 })
   let context: BrowserContext
   let source: Page
   let panel: Page
@@ -62,6 +63,8 @@ test.describe.serial("AI Prepare Source", () => {
           Turnover: { value: "$12.5m", quote: "Turnover: $12.5m" }, State: { value: "New South Wales", quote: "State: New South Wales" },
           "Start date": { value: "5 October 2026", quote: "Start date: 5 October 2026" }, Subscribed: { value: "Yes", quote: "Subscribed: Yes" },
         }
+        const email = input.documents[0].markdown.match(/Contact email: (\[EMAIL_[^\]]+\])/);
+        if (email) facts.Email = { value: email[1], quote: email[0] }
         const decisions = input.fields.map((field: { fieldKey: string; label: string }) => {
           const candidate = facts[field.label]
           const fact = candidate && input.documents[0].markdown.includes(candidate.quote) ? candidate : undefined
@@ -100,7 +103,11 @@ test.describe.serial("AI Prepare Source", () => {
     try { await page.setContent("<p>Organisation: Example Pty Ltd</p>"); return await page.pdf() }
     finally { await page.close() }
   }
-  const uploadText = () => panel.getByLabel("Source documents").setInputFiles({ name: "application.txt", mimeType: "text/plain", buffer: Buffer.from(documentText) })
+  const waitForDocuments = () => expect(panel.getByRole("button", { name: "Upload documents", exact: true })).toBeEnabled({ timeout: 300_000 })
+  const uploadText = async () => {
+    await panel.getByLabel("Source documents").setInputFiles({ name: "application.txt", mimeType: "text/plain", buffer: Buffer.from(documentText) })
+    await waitForDocuments()
+  }
 
   test("fills blank source controls, annotates evidence, preserves existing values, and safely undoes user-reviewed edits", async () => {
     await expect(panel.getByRole("combobox", { name: "AI Model", exact: true })).toHaveCount(1)
@@ -123,11 +130,20 @@ test.describe.serial("AI Prepare Source", () => {
     await expect(source.getByLabel("Organisation name")).toHaveValue("Example Pty Ltd")
     await expect(source.getByLabel("Turnover")).toHaveValue("12500000")
     await expect(source.getByRole("combobox", { name: "State", exact: true })).toHaveValue("NSW")
-    await expect(source.getByLabel("Start date")).toBeEmpty()
+    const dateSurvivedPrivacy = await background.evaluate(async (tabId) => {
+      const key = `rekeyzeroSourcePrepareDraft:v2:${tabId}`
+      const stored = await chrome.storage.session.get(key)
+      const doc = stored[key]?.[0]
+      return { canonical: doc?.markdown.includes("5 October 2026"), redacted: doc?.privacy.redactedMarkdown.includes("5 October 2026"),
+        protectedBy: doc?.privacy.findings.filter((finding: { placeholder: string }) => doc.privacy.entityMap[finding.placeholder]?.includes("October")).map((finding: { type: string }) => finding.type) }
+    }, tabId)
+    expect(dateSurvivedPrivacy).toEqual({ canonical: true, redacted: true, protectedBy: [] })
+    await expect(source.getByLabel("Start date")).toHaveValue("2026-10-05")
     await expect(source.getByLabel("Subscribed")).not.toBeChecked()
     await expect(source.getByLabel("Existing reference")).toHaveValue("PRIVATE_POPULATED_9321")
-    await expect(source.getByLabel("Email")).toBeEmpty()
-    await expect(source.getByRole("button", { name: "AI filled", exact: true })).toHaveCount(3)
+    await expect(source.getByLabel("Email")).toHaveValue("customer@example.com")
+    await expect(panel.locator("body")).not.toContainText("customer@example.com")
+    await expect(source.getByRole("button", { name: "AI filled", exact: true })).toHaveCount(5)
     expect(await source.locator("form").innerHTML()).toBe(formBefore)
     expect(await source.getByLabel("Organisation name").boundingBox()).toEqual(controlBefore)
     expect(await source.evaluate(() => (window as typeof window & { formMutations: number }).formMutations)).toBe(0)
@@ -155,18 +171,18 @@ test.describe.serial("AI Prepare Source", () => {
     const calls = await background.evaluate(() => (globalThis as typeof globalThis & { prepareCalls: unknown[] }).prepareCalls)
     expect(JSON.stringify(calls)).toContain("Example Pty Ltd")
     expect(JSON.stringify(calls)).not.toContain("customer@example.com")
-    expect(JSON.stringify(calls)).not.toContain("5 October 2026")
-    await expect(panel.getByText(/items detected and redacted/)).toBeVisible()
+    expect(JSON.stringify(calls)).toContain("5 October 2026")
+    await expect(panel.getByText(/items detected and protected/)).toBeVisible()
     await panel.getByLabel("Privacy details for application.txt").getByText("View details").click()
     await expect(panel.getByLabel("Privacy details for application.txt")).toContainText(/email/i)
     expect(JSON.stringify(calls)).not.toContain("PRIVATE_POPULATED_9321")
     expect(JSON.stringify(calls)).not.toContain("prepare-e2e-fixture-key")
     expect((calls as Array<{ fields: Array<{ label: string }> }>)[0].fields.some((field) => field.label === "Subscribed")).toBe(false)
     await source.getByLabel("Organisation name").fill("Reviewed organisation")
-    await expect(source.getByRole("button", { name: "AI filled", exact: true })).toHaveCount(3)
+    await expect(source.getByRole("button", { name: "AI filled", exact: true })).toHaveCount(5)
     await expect(source.getByRole("button", { name: "Reviewed / edited", exact: true })).toHaveCount(0)
     await panel.getByRole("button", { name: "Undo AI fill", exact: true }).click()
-    await expect(panel.getByText("Undo finished: 2 restored · 1 user values preserved · 0 stale", { exact: true })).toBeVisible()
+    await expect(panel.getByText("Undo finished: 4 restored · 1 user values preserved · 0 stale", { exact: true })).toBeVisible()
     await expect(source.getByLabel("Organisation name")).toHaveValue("Reviewed organisation")
     await expect(source.getByLabel("Turnover")).toBeEmpty()
     await expect(source.getByRole("combobox", { name: "State", exact: true })).toHaveValue("")
@@ -198,7 +214,7 @@ test.describe.serial("AI Prepare Source", () => {
   })
 
   test("keeps malformed extraction output out of durable logs and exports", async () => {
-    await expect(panel.getByText("Documents, evidence and Undo history will be cleared. Filled source values will remain.", { exact: true })).toBeVisible()
+    await expect(panel.getByText("Documents, local sensitive-value mappings, evidence and Undo history will be cleared. Filled source values will remain.", { exact: true })).toBeVisible()
     const filledBeforeClear = await source.getByLabel("Organisation name").inputValue()
     await panel.getByRole("button", { name: "Clear documents & evidence", exact: true }).click()
     await expect(source.getByLabel("Organisation name")).toHaveValue(filledBeforeClear)
@@ -238,25 +254,28 @@ test.describe.serial("AI Prepare Source", () => {
     await panel.getByRole("button", { name: "Clear documents & evidence", exact: true }).click()
     const callCount = await background.evaluate(() => (globalThis as typeof globalThis & { prepareCalls: unknown[] }).prepareCalls.length)
     await panel.getByLabel("Source documents").setInputFiles({ name: "application.pdf", mimeType: "application/pdf", buffer: await digitalPdf() })
+    await waitForDocuments()
     await expect(panel.getByRole("button", { name: "Remove document application.pdf" })).toBeVisible()
-    const pdf = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:${tabId}`))[`rekeyzeroSourcePrepareDraft:${tabId}`], tabId)
+    const pdf = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:v2:${tabId}`))[`rekeyzeroSourcePrepareDraft:v2:${tabId}`], tabId)
     expect(pdf[0].markdown).toContain("Organisation: Example Pty Ltd")
     await panel.getByLabel("Source documents").setInputFiles({ name: "application.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       buffer: officeBuffer("docx") })
+    await waitForDocuments()
     await expect(panel.getByRole("button", { name: "Remove document application.docx" })).toBeVisible()
-    const parsed = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:${tabId}`))[`rekeyzeroSourcePrepareDraft:${tabId}`], tabId)
+    const parsed = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:v2:${tabId}`))[`rekeyzeroSourcePrepareDraft:v2:${tabId}`], tabId)
     expect(parsed[1].markdown).toContain("State: NSW")
     await panel.locator(".source-document-drop").evaluate((element) => {
       const dataTransfer = new DataTransfer()
       dataTransfer.items.add(new File(["# Organisation\nExample Pty Ltd"], "notes.md", { type: "text/markdown" }))
       element.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer }))
     })
+    await waitForDocuments()
     await expect(panel.getByRole("button", { name: "Remove document notes.md" })).toBeVisible()
     await panel.getByLabel("Source documents").setInputFiles({ name: "scan.pdf", mimeType: "application/pdf", buffer: pdfBuffer() })
     await expect(panel.getByRole("alert")).toContainText("Scanned PDFs are not supported yet")
     expect(await background.evaluate(() => (globalThis as typeof globalThis & { prepareCalls: unknown[] }).prepareCalls.length)).toBe(callCount)
     await source.goto(`${portal.baseUrl}/prepare-source?new-record=1`)
-    await expect.poll(async () => background.evaluate(async (tabId) => Object.keys(await chrome.storage.session.get(null)).filter((key) => key === `rekeyzeroSourcePrepare:${tabId}` || key === `rekeyzeroSourcePrepareDraft:${tabId}`).length, tabId)).toBe(0)
+    await expect.poll(async () => background.evaluate(async (tabId) => Object.keys(await chrome.storage.session.get(null)).filter((key) => key === `rekeyzeroSourcePrepare:${tabId}` || key === `rekeyzeroSourcePrepareDraft:v2:${tabId}`).length, tabId)).toBe(0)
     await expect(source.locator("[data-rekeyzero-ui]")).toHaveCount(0)
   })
 
@@ -273,9 +292,10 @@ test.describe.serial("AI Prepare Source", () => {
       { name: "scan.pdf", mimeType: "application/pdf", buffer: pdfBuffer() },
     ]
     await panel.getByLabel("Source documents").setInputFiles(files)
+    await waitForDocuments()
     for (const file of files.slice(0, 5)) await expect(panel.getByRole("button", { name: `Remove document ${file.name}` })).toBeVisible()
     await expect(panel.getByRole("alert")).toContainText("Scanned PDFs are not supported yet")
-    const documents = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:${tabId}`))[`rekeyzeroSourcePrepareDraft:${tabId}`], tabId)
+    const documents = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:v2:${tabId}`))[`rekeyzeroSourcePrepareDraft:v2:${tabId}`], tabId)
     expect(documents).toHaveLength(5)
     expect(documents.every((document: { markdown: string; privacy: { redactedMarkdown: string } }) => document.markdown.includes("Example Pty Ltd") && document.privacy.redactedMarkdown.includes("Example Pty Ltd"))).toBe(true)
     expect(documents[4].privacy.redactedMarkdown).not.toContain("customer@example.com")
@@ -286,10 +306,10 @@ test.describe.serial("AI Prepare Source", () => {
   test("blocks unprocessed drafts and caller-supplied original Markdown before contacting the provider", async () => {
     await uploadText()
     await installMock()
-    const saved = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:${tabId}`))[`rekeyzeroSourcePrepareDraft:${tabId}`], tabId)
+    const saved = await background.evaluate(async (tabId) => (await chrome.storage.session.get(`rekeyzeroSourcePrepareDraft:v2:${tabId}`))[`rekeyzeroSourcePrepareDraft:v2:${tabId}`], tabId)
     await expect(request({ type: "PERSONAL_PREPARE_SOURCE", documentIds: ["not-in-draft"], documents: [{ markdown: "UNPROCESSED_SECRET" }] })).rejects.toThrow("Privacy processing could not complete")
     await background.evaluate(async ({ tabId, saved }) => {
-      await chrome.storage.session.set({ [`rekeyzeroSourcePrepareDraft:${tabId}`]: saved.map((document: Record<string, unknown>) => ({ ...document, privacy: undefined })) })
+      await chrome.storage.session.set({ [`rekeyzeroSourcePrepareDraft:v2:${tabId}`]: saved.map((document: Record<string, unknown>) => ({ ...document, privacy: undefined })) })
     }, { tabId, saved })
     await expect(request({ type: "PERSONAL_PREPARE_SOURCE", documentIds: [saved[0].id] })).rejects.toThrow("Privacy processing could not complete")
     expect(await background.evaluate(() => (globalThis as typeof globalThis & { prepareCalls: unknown[] }).prepareCalls)).toEqual([])

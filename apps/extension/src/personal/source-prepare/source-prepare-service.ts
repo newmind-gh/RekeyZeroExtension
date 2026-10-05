@@ -1,3 +1,4 @@
+import { resolveSourceExtraction } from "./placeholder-resolver"
 import { guardedPageRequest } from "../../transfer/guarded-page-client"
 import { transferCommand } from "../../transfer/controller"
 import type { Action, Field, Observation, Plan, Session } from "../../transfer/types"
@@ -6,7 +7,7 @@ import { validatePreparedDocuments } from "./document-converter"
 import { extractSourceFields } from "./source-extractor"
 import { validateSourceExtraction } from "./source-prepare-validator"
 import { isBlankSourceValue, normalizeSourceValue } from "./source-value-normalizer"
-import { allSourcePrepareSessions, deleteSourcePrepare, loadSourcePrepare, saveSourcePrepare, sourcePrepareView, PREPARE_DRAFT_PREFIX } from "./source-prepare-store"
+import { allSourcePrepareSessions, deleteSourcePrepare, loadSourcePrepare, saveSourcePrepare, sourcePrepareView, PREPARE_DRAFT_PREFIX, LEGACY_PREPARE_DRAFT_PREFIX } from "./source-prepare-store"
 import type { PreparedDocument, SourcePrepareFieldResult, SourcePrepareSession, SourcePrepareView } from "./source-prepare-session"
 import { PRIVACY_PROCESSING_ERROR } from "./privacy-processor"
 
@@ -102,7 +103,7 @@ export async function prepareSource(documents: PreparedDocument[], modelId: stri
       fieldKey, label: field.label, section: field.group, controlType: field.type, required: field.required, options: field.options,
     })), documents, controller.signal)
     await assertLive(session, controller.signal)
-    const results = validateSourceExtraction(output, session.fields, documents)
+    const results = resolveSourceExtraction(validateSourceExtraction(output, session.fields, documents), documents)
     const actionable = new Set(results.filter((result) => result.status === "filled"))
     for (const result of actionable) result.status = "invalid"
     session.results.push(...results)
@@ -121,7 +122,7 @@ export async function prepareSource(documents: PreparedDocument[], modelId: stri
       const current = await observe(session)
       const field = samePage(observation, current) ? currentField(before, current) : undefined
       if (!field) { result.status = "stale"; continue }
-      const normalized = normalizeSourceValue(result.extractedValue, field)
+      const normalized = normalizeSourceValue(result.resolvedValue, field)
       if (!isBlankSourceValue(field.value)) {
         result.status = normalized !== undefined && !Object.is(normalized, field.value) ? "conflict" : "preserved"
         if (result.status === "conflict") await annotate(session, result, field)
@@ -202,10 +203,13 @@ export async function clearSourcePrepare(sessionId?: string, tabId?: number): Pr
       transferId: session.transferId, targetId: "source-prepare", tabId: session.tabId, documentEpoch: "",
       requestId: crypto.randomUUID(), sourcePrepareSessionId: session.id }, { frameId: 0 }).catch(() => undefined)
   }
-  if (tabId !== undefined) await chrome.storage.session.remove(`${PREPARE_DRAFT_PREFIX}${tabId}`)
+  if (tabId !== undefined) {
+    await chrome.storage.session.remove(`${PREPARE_DRAFT_PREFIX}${tabId}`)
+    await chrome.storage.session.remove(`${LEGACY_PREPARE_DRAFT_PREFIX}${tabId}`)
+  }
   else if (!sessionId) {
     const saved = await chrome.storage.session.get(null)
-    for (const key of Object.keys(saved)) if (key.startsWith(PREPARE_DRAFT_PREFIX)) await chrome.storage.session.remove(key)
+    for (const key of Object.keys(saved)) if (key.startsWith(LEGACY_PREPARE_DRAFT_PREFIX)) await chrome.storage.session.remove(key)
   }
 }
 export async function showSourcePrepareEvidence(sessionId: string, visible: boolean): Promise<void> {

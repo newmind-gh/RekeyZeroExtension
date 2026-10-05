@@ -5,6 +5,7 @@ import type { Snapshot } from "../transfer/types"
 import { isBlankSourceValue } from "../personal/source-prepare/source-value-normalizer"
 import { worker } from "./client"
 import { PREPARE_DRAFT_PREFIX } from "../personal/source-prepare/source-prepare-store"
+import { onPrivacyProgress } from "../personal/source-prepare/privacy-processor"
 
 type Props = { source?: Snapshot; tabId?: number; aiReady: boolean; supportsExtraction: boolean; busy: boolean;
   onBusy: (busy: boolean) => void; onComplete: () => Promise<void> }
@@ -13,9 +14,11 @@ export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, 
   const [view, setView] = useState<SourcePrepareView | null>(null)
   const [error, setError] = useState("")
   const [working, setWorking] = useState(false)
+  const [privacyProgress, setPrivacyProgress] = useState("")
   const [evidenceVisible, setEvidenceVisible] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const documentGeneration = useRef(0)
+  useEffect(() => onPrivacyProgress(setPrivacyProgress), [])
   useEffect(() => {
     let cancelled = false
     documentGeneration.current++
@@ -54,21 +57,21 @@ export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, 
     const generation = documentGeneration.current
     try {
       if (documents.length + files.length > 6) throw new Error("Add between 1 and 6 source documents")
-      const processed = await Promise.allSettled(files.map(prepareSourceDocument))
-      if (generation !== documentGeneration.current) return
       const next = [...documents], errors: string[] = []
-      processed.forEach((result, index) => {
-        if (result.status === "rejected") {
-          errors.push(`${files[index].name}: ${result.reason instanceof Error ? result.reason.message : "This document could not be converted to text."}`)
-        } else {
-          try { validatePreparedDocuments([...next, result.value]); next.push(result.value) }
-          catch (caught) { errors.push(caught instanceof Error ? caught.message : "This document could not be converted to text.") }
+      for (const file of files) {
+        if (generation !== documentGeneration.current) return
+        try {
+          const prepared = await prepareSourceDocument(file)
+          if (generation !== documentGeneration.current) return
+          validatePreparedDocuments([...next, prepared]); next.push(prepared)
+        } catch (caught) {
+          errors.push(`${file.name}: ${caught instanceof Error ? caught.message : "This document could not be converted to text."}`)
         }
-      })
+      }
       await saveDocuments(next)
       setError(errors.join(" "))
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not read this document") }
-    finally { onBusy(false); if (fileInput.current) fileInput.current.value = "" }
+    finally { setPrivacyProgress(""); onBusy(false); if (fileInput.current) fileInput.current.value = "" }
   }
   const prepare = async () => {
     setError(""); setWorking(true); onBusy(true)
@@ -103,6 +106,7 @@ export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, 
   return <section className="source-prepare" aria-label="Prepare Source with AI">
     <h3>Prepare Source with AI</h3>
     {error && <p role="alert" className="error">{error}</p>}
+    {privacyProgress && <p role="status">{privacyProgress}</p>}
     <div className="source-document-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
       event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files))
     }}>
@@ -115,9 +119,6 @@ export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, 
       <button type="button" disabled={busy} aria-label={`Remove document ${document.name}`} onClick={() => void saveDocuments(documents.filter((item) => item.id !== document.id)).catch(() => setError("Could not remove this document"))}>Remove</button>
       <DocumentPrivacySummary document={document} />
     </li>)}</ul>}
-    <p className="help">Documents are converted to Markdown and privacy-processed locally. Only redacted Markdown is sent directly from this browser to the selected AI provider. RekeyZero does not operate a proxy.</p>
-    <p className="help">Privacy detection is best-effort and may not identify every sensitive item. Masked values are unavailable for extraction and are never restored.</p>
-    <p className="help">Document content, privacy findings, evidence, and extracted values stay only in this browser session. Existing source values are never overwritten. Up to 6 documents, 10 MB each, 80,000 Markdown characters total. Scanned PDFs, OCR, and MSG are not supported by the current converter.</p>
     {!supportsExtraction && <p className="help">This model does not support document extraction. Choose another AI model.</p>}
     <button type="button" disabled={busy || !aiReady || !supportsExtraction || !source || !documents.length || !blanks}
       onClick={() => void prepare()}>{working ? "Extracting & filling…" : "Extract & fill source"}</button>
@@ -132,7 +133,7 @@ export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, 
     </div>}
     {(documents.length > 0 || view) && <>
       <button type="button" disabled={busy} onClick={() => void clear()}>Clear documents &amp; evidence</button>
-      <p className="help">Documents, evidence and Undo history will be cleared. Filled source values will remain.</p>
+      <p className="help">Documents, local sensitive-value mappings, evidence and Undo history will be cleared. Filled source values will remain.</p>
     </>}
   </section>
 }
@@ -144,8 +145,8 @@ function DocumentPrivacySummary({ document }: { document: PreparedDocument }) {
     category.count++; categories.set(finding.type, category)
   }
   return <div className="source-privacy-summary">
-    <strong>Privacy check</strong>
-    <p>{document.privacy.findings.length ? `${document.privacy.findings.length} items detected and redacted` : "No common privacy-sensitive patterns detected."}</p>
+    <strong>Sensitive information check</strong>
+    <p>{document.privacy.findings.length ? `${document.privacy.findings.length} items detected and protected` : "No common sensitive-information patterns detected."}</p>
     {document.privacy.findings.length > 0 && <details aria-label={`Privacy details for ${document.name}`}>
       <summary>View details</summary>
       <ul>{[...categories].map(([type, category]) => <li key={type}>{category.name}: {category.count}</li>)}</ul>

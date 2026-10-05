@@ -59,6 +59,7 @@ const buildMetadataRoot = resolve(root, "..", "..", "artifacts", "extension-buil
 const distributedInventory = mergeDistributedDependencyInventories([
   JSON.parse(readFileSync(join(buildMetadataRoot, "personal-application.json"), "utf8")),
   JSON.parse(readFileSync(join(buildMetadataRoot, "personal-content-script.json"), "utf8")),
+  JSON.parse(readFileSync(join(buildMetadataRoot, "personal-privacy-worker.json"), "utf8")),
 ])
 const report = {
   schema_version: 1,
