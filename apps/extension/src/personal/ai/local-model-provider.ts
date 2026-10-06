@@ -266,6 +266,9 @@ function parseWebLlmOutput<T>(request: ModelRequest, content: string): T {
 }
 
 function webLlmSystemPrompt(request: ModelRequest): string {
+  if (request.task === "source_extract") {
+    return `${request.system}\n\nReturn JSON matching this schema exactly:\n${JSON.stringify(request.schema)}\nUse the supplied fieldKey and documentId values, not field-matching t-IDs or s-IDs.`
+  }
   const contract = fieldMatchContract(request)
   if (!contract) return request.system
 
@@ -361,13 +364,16 @@ export class LocalModelProvider implements PersonalModelProvider {
           if (signal?.aborted) throw new DOMException("Local AI request was cancelled", "AbortError")
           const retry = await complete([
             ...baseMessages,
-            { role: "user", content: "Return only one compact JSON object with a decisions array. Use each listed t-ID exactly once and only a listed s-ID or null. Do not repeat labels, add markdown, or add commentary." },
+            { role: "user", content: request.task === "source_extract"
+              ? "Return only one JSON object matching the extraction schema. Include fieldKey, status, value, and evidence for each supplied field. Use verbatim document quotes; use not_found with null and empty evidence if unsupported. No markdown or commentary."
+              : "Return only one compact JSON object with a decisions array. Use each listed t-ID exactly once and only a listed s-ID or null. Do not repeat labels, add markdown, or add commentary." },
           ])
           content = retry.choices[0]?.message.content
           if (!content) throw new Error("Local AI returned no result on retry")
           rawResponses.push(content)
           try { output = parseWebLlmOutput<T>(request, content) }
           catch {
+            if (request.task === "source_extract") throw new Error("AI returned invalid extraction JSON twice")
             const error = new Error("Local AI returned an unsafe or invalid field-match format twice. Try creating the Fill Setup again.") as Error & { rawResponses: string[] }
             error.rawResponses = rawResponses
             throw error
@@ -380,6 +386,9 @@ export class LocalModelProvider implements PersonalModelProvider {
           rawResponses,
         }
       } catch (error) {
+        if (request.task === "source_extract" && error instanceof Error && /context.{0,30}(window|length|size)|exceed.{0,30}(token|context)/i.test(error.message)) {
+          throw new Error("These documents exceed the selected local model's context window. Use shorter documents or select an API model.")
+        }
         if (!isFatalLocalEngineError(error)) throw error
         this.invalidate(failedEngine)
         const detail = error instanceof Error ? error.message : "Unknown WebGPU error"

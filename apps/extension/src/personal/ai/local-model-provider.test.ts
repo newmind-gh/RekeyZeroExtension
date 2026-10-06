@@ -13,6 +13,8 @@ vi.mock("@mlc-ai/web-llm", () => ({
 }))
 
 import { LocalModelProvider } from "./local-model-provider"
+import { LOCAL_MODELS } from "./model-registry"
+import { sourceExtractionRequest } from "../source-prepare/source-extraction-prompt"
 
 const singleFieldSchema = {
   type: "object",
@@ -37,6 +39,29 @@ describe("LocalModelProvider", () => {
     await new LocalModelProvider("personal-gemma2-2b-it-v1").delete()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
+  })
+
+  it.each(LOCAL_MODELS)("extracts with $displayName and retries using the extraction contract", async (model) => {
+    vi.stubGlobal("navigator", { gpu: {} })
+    const output = { decisions: [{ fieldKey: "field_001", status: "found", value: "Example Pty Ltd", evidence: [{ documentId: "doc", page: null, quote: "Organisation: Example Pty Ltd" }] }] }
+    const createCompletion = vi.fn()
+      .mockResolvedValueOnce({ choices: [{ message: { content: "invalid JSON" } }] })
+      .mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(output) } }] })
+    webLlm.createEngine.mockResolvedValue({ chat: { completions: { create: createCompletion } }, reload: vi.fn(), unload: vi.fn() })
+    const request = sourceExtractionRequest(
+      [{ fieldKey: "field_001", label: "Organisation", section: "", controlType: "text", required: false, options: [] }],
+      [{ id: "doc", name: "source.txt", mediaType: "text/plain", size: 30, textHash: "a".repeat(64), markdown: "Organisation: Example Pty Ltd",
+        privacy: { findings: [], entityMap: {}, redactedMarkdown: "Organisation: Example Pty Ltd" } }],
+    )
+    request.maxTokens = 512
+    const result = await new LocalModelProvider(model.id).completeJson(request)
+    expect(result.output).toEqual(output)
+    expect(result.modelId).toBe(model.id)
+    expect(createCompletion).toHaveBeenCalledTimes(2)
+    expect(createCompletion.mock.calls[0][0].messages[0].content).toContain(JSON.stringify(request.schema))
+    expect(createCompletion.mock.calls[1][0].messages.at(-1).content).toContain("fieldKey, status, value, and evidence")
+    expect(createCompletion.mock.calls[1][0].messages.at(-1).content).not.toContain("t-ID")
+    expect(createCompletion.mock.calls[0][0]).not.toHaveProperty("response_format")
   })
 
   it("loads Qwen2.5 1.5B with WebLLM", async () => {

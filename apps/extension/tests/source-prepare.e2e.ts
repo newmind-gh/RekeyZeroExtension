@@ -103,21 +103,34 @@ test.describe.serial("AI Prepare Source", () => {
     try { await page.setContent("<p>Organisation: Example Pty Ltd</p>"); return await page.pdf() }
     finally { await page.close() }
   }
-  const waitForDocuments = () => expect(panel.getByRole("button", { name: "Upload documents", exact: true })).toBeEnabled({ timeout: 300_000 })
+  const waitForDocuments = () => expect(panel.getByRole("button", { name: "Upload", exact: true })).toBeEnabled({ timeout: 300_000 })
   const uploadText = async () => {
     await panel.getByLabel("Source documents").setInputFiles({ name: "application.txt", mimeType: "text/plain", buffer: Buffer.from(documentText) })
     await waitForDocuments()
   }
 
   test("fills blank source controls, annotates evidence, preserves existing values, and safely undoes user-reviewed edits", async () => {
+    await panel.setViewportSize({ width: 380, height: 900 })
     await expect(panel.getByRole("combobox", { name: "AI Model", exact: true })).toHaveCount(1)
     await expect(panel.locator(".non-ai-profile")).not.toHaveAttribute("open")
     await expect(panel.getByRole("region", { name: "Prepare Source with AI" })).toBeVisible()
-    await expect(panel.getByRole("button", { name: "Extract & fill source" })).toBeDisabled()
+    await expect(panel.getByRole("region", { name: "Source document drop area" })).toBeVisible()
+    const uploadBounds = await panel.getByRole("button", { name: "Upload", exact: true }).boundingBox()
+    const fillBounds = await panel.getByRole("button", { name: "Fill Source", exact: true }).boundingBox()
+    expect(uploadBounds!.y).toBe(fillBounds!.y)
+    expect(uploadBounds!.x + uploadBounds!.width).toBeLessThan(fillBounds!.x)
+    await expect(panel.getByRole("button", { name: "Fill Source" })).toBeDisabled()
     await installMock()
     await uploadText()
-    await expect(panel.getByRole("button", { name: "Extract & fill source" })).toBeEnabled()
+    await expect(panel.getByRole("button", { name: "Fill Source" })).toBeEnabled()
     const before = await request<{ source: Observation }>({ type: "TRANSFER", command: { type: "GET_TRANSFER" } })
+    await panel.evaluate(async () => {
+      const stored = await chrome.storage.session.get("rekeyzeroTransfer")
+      const transfer = { ...stored.rekeyzeroTransfer }
+      delete transfer.source
+      await chrome.storage.session.set({ rekeyzeroTransfer: transfer })
+    })
+    await expect(panel.getByRole("button", { name: "Fill Source" })).toBeEnabled()
     const formBefore = await source.locator("form").innerHTML()
     const controlBefore = await source.getByLabel("Organisation name").boundingBox()
     await source.evaluate(() => {
@@ -125,7 +138,7 @@ test.describe.serial("AI Prepare Source", () => {
       state.formMutations = 0
       new MutationObserver((records) => { state.formMutations += records.length }).observe(document.querySelector("form")!, { subtree: true, childList: true, attributes: true })
     })
-    await panel.getByRole("button", { name: "Extract & fill source" }).click()
+    await panel.getByRole("button", { name: "Fill Source" }).click()
     await expect(panel.getByText("Review on the source page", { exact: true })).toBeVisible()
     await expect(source.getByLabel("Organisation name")).toHaveValue("Example Pty Ltd")
     await expect(source.getByLabel("Turnover")).toHaveValue("12500000")
@@ -201,7 +214,7 @@ test.describe.serial("AI Prepare Source", () => {
     await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId } })
     await uploadText()
     await installMock("delayed")
-    await panel.getByRole("button", { name: "Extract & fill source" }).click()
+    await panel.getByRole("button", { name: "Fill Source" }).click()
     await expect.poll(async () => background.evaluate(() => (globalThis as typeof globalThis & { prepareCalls: unknown[] }).prepareCalls.length)).toBe(1)
     await source.getByRole("combobox", { name: "State", exact: true }).selectOption("VIC")
     await background.evaluate(() => (globalThis as typeof globalThis & { finishPrepare?: () => void }).finishPrepare?.())
@@ -224,7 +237,7 @@ test.describe.serial("AI Prepare Source", () => {
     await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId } })
     await uploadText()
     await installMock("invalid")
-    await panel.getByRole("button", { name: "Extract & fill source" }).click()
+    await panel.getByRole("button", { name: "Fill Source" }).click()
     await expect(panel.getByRole("alert")).toContainText("invalid extraction JSON twice")
     await expect(source.getByLabel("Organisation name")).toBeEmpty()
     expect(await request({ type: "PERSONAL_GET_LLM_LOGS" })).toEqual([])
@@ -237,7 +250,7 @@ test.describe.serial("AI Prepare Source", () => {
     await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId } })
     await uploadText()
     await installMock("delayed")
-    await panel.getByRole("button", { name: "Extract & fill source" }).click()
+    await panel.getByRole("button", { name: "Fill Source" }).click()
     await expect.poll(async () => background.evaluate(() => (globalThis as typeof globalThis & { prepareCalls: unknown[] }).prepareCalls.length)).toBe(1)
     await source.evaluate(() => {
       const original = document.querySelector('input[name="organisation"]')!
@@ -321,7 +334,7 @@ test.describe.serial("AI Prepare Source", () => {
     await request({ type: "TRANSFER", command: { type: "SET_SOURCE", tabId } })
     await uploadText()
     await installMock()
-    await panel.getByRole("button", { name: "Extract & fill source" }).click()
+    await panel.getByRole("button", { name: "Fill Source" }).click()
     await expect(panel.getByText("Review on the source page", { exact: true })).toBeVisible()
     await context.route(`${portal.baseUrl}/prepare-target`, (route) => route.fulfill({ contentType: "text/html", body: form
       .replace("Prepare Source test", "Prepare Target test").replace("Organisation name", "Registered business").replace('value="PRIVATE_POPULATED_9321"', 'value=""') }))
@@ -332,7 +345,7 @@ test.describe.serial("AI Prepare Source", () => {
     await expect(panel.locator(".fill-setup-editor .transfer-tabs").getByText("Prepare Target test", { exact: true })).toBeVisible()
     await panel.locator(".fill-setup-editor").getByRole("button", { name: "Save Profile", exact: true }).click()
     await expect.poll(async () => await panel.locator(".fill-setup-editor").count() === 0 ? "saved" : (await panel.locator(".ai-fill-setup [role=alert]").allTextContents()).join(" ") || "saving").toBe("saved")
-    await panel.getByRole("button", { name: "Fill with saved AI ZeroKey Profile", exact: true }).click()
+    await panel.getByRole("button", { name: "Fill Targets", exact: true }).click()
     await expect(target.getByLabel("Registered business")).toHaveValue("Example Pty Ltd")
     await expect(target.getByLabel("Turnover")).toHaveValue("12500000")
     await expect(target.getByLabel("Existing reference")).toHaveValue("PRIVATE_POPULATED_9321")

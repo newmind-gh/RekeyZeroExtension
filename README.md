@@ -94,9 +94,16 @@ For API models, requests go directly from the extension to the selected provider
 
 The AI section appears first and shares one model selector between preparation and mapping. **Use Non-AI ZeroKey Profile** is collapsed by default and contains the existing manual mapping controls.
 
-1. Select the current source tab and choose **Observe source page** to grant website access and inspect its fields.
-2. Upload or drop digital PDF, DOCX, XLSX, PPTX, TXT, Markdown, HTML, CSV, or EML documents. Limits are 6 documents, 10 MB per file, and 80,000 Markdown characters across all documents. Scanned/image-only PDFs and MSG are unsupported by this version.
-3. **Local privacy processing:** detect and redact PII before AI extraction (best-effort).
+The selected model handles both document extraction and profile mapping. Local Gemma and Qwen
+run both tasks in the browser; API models use the same selected provider and configured model
+for both tasks. Local extraction processes fields sequentially to limit output size, retains all
+document evidence, and requires the documents to fit the selected model's context window.
+
+1. Choose an AI model. **Select AI Model** appears until a model is selected; API settings appear only for a selected API model.
+2. Under **Prepare Source with AI**, select the current source tab from the live browser tab list. New AI Mapping profiles use this selected source by default; target choices also update from open browser tabs.
+3. Upload or drop digital PDF, DOCX, XLSX, PPTX, TXT, Markdown, HTML, CSV, or EML documents. Limits are 6 documents, 10 MB per file, and 80,000 Markdown characters across all documents. Scanned/image-only PDFs and MSG are unsupported by this version.
+4. **Local privacy processing:** detect and redact PII before AI extraction (best-effort).
+5. Drop files in the document drop area or choose **Upload**. Choose **Fill Source** alongside it to grant source website access, refresh the field observation, then extract documented values and fill eligible blank fields. Review the filled source page and evidence before continuing to AI Mapping and **Fill Targets**.
 
 ## Quick start
 
@@ -148,21 +155,17 @@ RekeyZero provides **AI mapping** through **AI ZeroKey Profile** and **non-AI ma
 
 ![RekeyZero Personal Side Panel showing ZeroKey Profile and AI ZeroKey Profile controls](docs/images/rekeyzero-side-panel.png)
 
-### Source and target tab selection
-
-![RekeyZero ZeroKey Profile editor showing source and target tab selection](docs/images/rekeyzero-profile-tab-selection.png)
-
-### Field mappings
-
-![RekeyZero Field Mappings editor showing source-field selection and existing-value policy](docs/images/rekeyzero-field-mappings.png)
-
-### AI ZeroKey Profile editor
+### AI ZeroKey Profile Editor
 
 ![RekeyZero AI ZeroKey Profile editor showing source and target selection](docs/images/rekeyzero-ai-profile-editor.png)
 
 ### Saved AI ZeroKey Profile
 
 ![RekeyZero Personal Side Panel showing a saved AI ZeroKey Profile with validated field matches](docs/images/rekeyzero-ai-profile-saved.png)
+
+### Non-AI Field Mappings
+
+![RekeyZero Field Mappings editor showing source-field selection and existing-value policy](docs/images/rekeyzero-field-mappings.png)
 
 ## RekeyZero Admin
 

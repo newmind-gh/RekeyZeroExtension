@@ -13,7 +13,7 @@ label { display: block; color: #596660; font-size: 12px; margin: 10px 0; }
 .help { color: #68756f; font-size: 12px; margin: 5px 0 10px; }
 .error { display: flex; gap: 8px; padding: 11px; margin-bottom: 12px; border-radius: 9px; background: #fff0f0; color: #a12d2d; font-size: 12px; }
 .transfer-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.transfer-header h1 { margin: 0; font-size: 18px; }
+.transfer-header h2 { margin: 0; }
 .transfer-header .workspace-settings { width: 28px; height: 28px; min-height: 28px; margin: 0; padding: 0; border: 1px solid #cfd9d4; border-radius: 6px; background: white; color: #17201d; }
 .transfer-header .workspace-settings:hover { background: #eaf0ed; }
 /* Batch transfer keeps source, target identity and exceptions visible together. */
@@ -51,10 +51,13 @@ label { display: block; color: #596660; font-size: 12px; margin: 10px 0; }
 .transfer-selection-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
 .transfer-selection-actions button { min-height: 28px; margin: 0; padding: 4px 4px; font-size: 11px; }
 .ai-fill-setup { border-color: #b9c9ef; background: #f8faff; }
-.source-prepare { margin: 16px 0; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
-.current-source h3, .source-prepare h3 { font-size: 13px; }
-.source-document-drop { padding: 12px; border: 1px dashed #94a3b8; border-radius: 6px; }
-.source-document-drop p, .source-prepare-summary p { font-size: 12px; }
+.source-prepare { margin: 16px 0; }
+.ai-fill-setup > h3, .source-prepare > h3 { font-size: 13px; margin: 16px 0 10px; }
+.source-document-drop { display: grid; place-items: center; min-height: 64px; padding: 12px; border: 1px dashed #94a3b8; border-radius: 6px; }
+.source-document-drop p { margin: 0; }
+.source-document-help, .source-document-drop p, .source-prepare-summary p { font-size: 12px; }
+.source-prepare-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.source-prepare-actions button { margin: 0; }
 .source-prepare li { font-size: 12px; overflow-wrap: anywhere; }
 .source-prepare li button { width: auto; margin: 3px 6px; }
 .source-prepare-summary { margin-top: 12px; }

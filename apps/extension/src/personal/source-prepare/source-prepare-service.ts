@@ -58,7 +58,9 @@ export function safePrepareError(error: unknown): string {
     "No supported values can be filled: the source page has no blank editable fields", "Select and observe a source page before preparing it",
     "Select a readable source form before preparing it", "Select an active Source Preparation session",
     "Allow this website before reading or filling", "Allow this website before using its AI provider",
-    "Start a new batch before preparing the source page", "This model does not support document extraction. Choose another AI model.",
+    "Start a new batch before preparing the source page", "Select an AI model before preparing the source",
+    "The selected local AI model is not ready",
+    "These documents exceed the selected local model's context window. Use shorter documents or select an API model.",
     "AI returned invalid extraction JSON twice", "AI returned an invalid extraction result", "Prepare Source is already running",
   ]).has(message) || /^Select and configure (Gemini|OpenAI|Claude|DeepSeek) before preparing the source$/.test(message)) return message
   return "Source preparation could not complete. Check the selected AI provider and source page, then try again."

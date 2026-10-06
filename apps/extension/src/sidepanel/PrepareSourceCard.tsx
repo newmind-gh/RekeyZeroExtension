@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import { prepareSourceDocument, validatePreparedDocuments, SOURCE_DOCUMENT_ACCEPT } from "../personal/source-prepare/document-converter"
 import type { PreparedDocument, SourcePrepareView } from "../personal/source-prepare/source-prepare-session"
-import type { Snapshot } from "../transfer/types"
-import { isBlankSourceValue } from "../personal/source-prepare/source-value-normalizer"
 import { worker } from "./client"
 import { PREPARE_DRAFT_PREFIX } from "../personal/source-prepare/source-prepare-store"
 import { onPrivacyProgress } from "../personal/source-prepare/privacy-processor"
 
-type Props = { source?: Snapshot; tabId?: number; aiReady: boolean; supportsExtraction: boolean; busy: boolean;
-  onBusy: (busy: boolean) => void; onComplete: () => Promise<void> }
-export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, busy, onBusy, onComplete }: Props) {
+type Props = { children: ReactNode; tabId?: number; aiReady: boolean; busy: boolean;
+  onBusy: (busy: boolean) => void; onObserve: () => Promise<void>; onComplete: () => Promise<void> }
+export function PrepareSourceCard({ children, tabId, aiReady, busy, onBusy, onObserve, onComplete }: Props) {
   const [documents, setDocuments] = useState<PreparedDocument[]>([])
   const [view, setView] = useState<SourcePrepareView | null>(null)
   const [error, setError] = useState("")
@@ -76,6 +75,7 @@ export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, 
   const prepare = async () => {
     setError(""); setWorking(true); onBusy(true)
     try {
+      await onObserve()
       const prepared = await worker<SourcePrepareView>({ type: "PERSONAL_PREPARE_SOURCE", documentIds: documents.map((document) => document.id) })
       setView(prepared)
       if (!prepared.summary.filled && !prepared.summary.conflicts) setError(prepared.summary.stale
@@ -102,26 +102,28 @@ export function PrepareSourceCard({ source, tabId, aiReady, supportsExtraction, 
     } catch { setError("Could not clear source preparation") }
     finally { onBusy(false) }
   }
-  const blanks = source?.fields.filter((field) => field.writable && field.instanceStable && !field.ambiguousInObservation && isBlankSourceValue(field.value)).length ?? 0
   return <section className="source-prepare" aria-label="Prepare Source with AI">
     <h3>Prepare Source with AI</h3>
+    {children}
     {error && <p role="alert" className="error">{error}</p>}
     {privacyProgress && <p role="status">{privacyProgress}</p>}
-    <div className="source-document-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
+    <p className="source-document-help">Drop or upload digital PDF, DOCX, XLSX, PPTX, TXT, Markdown, HTML, CSV, or EML documents.</p>
+    <div className="source-document-drop" role="region" aria-label="Source document drop area" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
       event.preventDefault(); void addFiles(Array.from(event.dataTransfer.files))
     }}>
-      <p>Drop or upload digital PDF, DOCX, XLSX, PPTX, TXT, Markdown, HTML, CSV, or EML documents.</p>
+      <p>Drop documents here</p>
       <input ref={fileInput} aria-label="Source documents" type="file" multiple accept={SOURCE_DOCUMENT_ACCEPT} hidden
         disabled={busy || tabId === undefined} onChange={(event) => void addFiles(Array.from(event.target.files ?? []))} />
-      <button type="button" disabled={busy || tabId === undefined} onClick={() => fileInput.current?.click()}>Upload documents</button>
     </div>
     {documents.length > 0 && <ul>{documents.map((document) => <li key={document.id}>{document.name} · Ready
       <button type="button" disabled={busy} aria-label={`Remove document ${document.name}`} onClick={() => void saveDocuments(documents.filter((item) => item.id !== document.id)).catch(() => setError("Could not remove this document"))}>Remove</button>
       <DocumentPrivacySummary document={document} />
     </li>)}</ul>}
-    {!supportsExtraction && <p className="help">This model does not support document extraction. Choose another AI model.</p>}
-    <button type="button" disabled={busy || !aiReady || !supportsExtraction || !source || !documents.length || !blanks}
-      onClick={() => void prepare()}>{working ? "Extracting & filling…" : "Extract & fill source"}</button>
+    <div className="source-prepare-actions">
+      <button type="button" disabled={busy || tabId === undefined} onClick={() => fileInput.current?.click()}>Upload</button>
+      <button type="button" disabled={busy || !aiReady || tabId === undefined || !documents.length}
+        onClick={() => void prepare()}>{working ? "Filling source…" : "Fill Source"}</button>
+    </div>
     {view && !["extracting", "filling"].includes(view.status) && <div className="source-prepare-summary">
       <strong>{view.status === "undone" ? `Undo finished: ${view.undoSummary?.restored ?? 0} restored · ${view.undoSummary?.preserved ?? 0} user values preserved · ${view.undoSummary?.stale ?? 0} stale` : "Review on the source page"}</strong>
       <p>{view.summary.filled} AI-filled · {view.summary.preserved} preserved during extraction · {view.summary.conflicts} conflicts to review · {view.summary.ambiguous} ambiguous · {view.summary.notFound} not found · {view.summary.invalid} invalid · {view.summary.stale} stale</p>

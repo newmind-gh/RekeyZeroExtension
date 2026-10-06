@@ -88,8 +88,11 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
     await expect(extensionPage.locator('label:has(select[aria-label="Profile"])')).toHaveCount(0)
     await expect(extensionPage.getByRole("heading", { name: "AI ZeroKey Profile" })).toBeVisible()
     await expect(extensionPage.getByRole("combobox", { name: "AI Model" })).toBeVisible()
-    await expect(extensionPage.getByRole("combobox", { name: "AI Model" })).toHaveValue("personal-gemini-api-v1")
-    await expect(extensionPage.getByRole("combobox", { name: "Gemini · API model" })).toHaveValue("gemini-3.5-flash-lite")
+    await expect(extensionPage.getByRole("combobox", { name: "AI Model" })).toHaveValue("")
+    await expect(extensionPage.getByText("API settings", { exact: true })).toHaveCount(0)
+    await expect(extensionPage.getByRole("heading", { name: "RekeyZero Personal", exact: true })).toHaveCount(0)
+    await expect(extensionPage.getByRole("button", { name: "Observe source page", exact: true })).toHaveCount(0)
+    await expect(extensionPage.getByRole("region", { name: "Prepare Source with AI" }).getByLabel("Current source tab")).toBeVisible()
     expect((await request<PersonalAiSettingsView>({ type: "PERSONAL_GET_AI_SETTINGS" })).apiModelId).toBeNull()
     await expect(extensionPage.locator('select[aria-label="AI Model"] option[value="personal-gpt-api-v1"]')).toBeEnabled()
     await extensionPage.getByRole("combobox", { name: "AI Model" }).selectOption("personal-gpt-api-v1")
@@ -100,6 +103,36 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
     await expect(extensionPage.getByLabel("Or enter source URL")).toBeVisible()
     await expect(extensionPage.getByLabel(/Additional target URLs/)).toBeVisible()
     await extensionPage.getByRole("button", { name: "Cancel" }).click()
+  })
+
+  test("uses the selected source for new AI profiles and refreshes live browser tabs", async () => {
+    const source = await context.newPage()
+    const target = await context.newPage()
+    await source.route("**/live-source", (route) => route.fulfill({ contentType: "text/html", body: "<title>Live source</title><label>Name<input></label>" }))
+    await target.route("**/live-target", (route) => route.fulfill({ contentType: "text/html", body: "<title>Live target</title><label>Name<input></label>" }))
+    try {
+      await source.goto(`${portal.baseUrl}/live-source`)
+      await target.goto(`${portal.baseUrl}/live-target`)
+      const sourceId = await extensionPage.evaluate(async (url) => (await chrome.tabs.query({ url }))[0].id!, source.url())
+      const currentSource = extensionPage.getByLabel("Current source tab")
+      await expect(currentSource.locator(`option[value="${sourceId}"]`)).toContainText("Live source")
+      await currentSource.selectOption(String(sourceId))
+      await extensionPage.locator(".ai-fill-setup").getByRole("button", { name: "Create Profile", exact: true }).click()
+      const profileSource = extensionPage.getByLabel("AI ZeroKey Profile source tab")
+      await expect(profileSource).toHaveValue(String(sourceId))
+      const targetChoices = extensionPage.locator(".fill-setup-editor .transfer-tabs")
+      await expect(targetChoices).toContainText("Live target")
+      await expect(targetChoices).not.toContainText("Live source")
+      await source.evaluate(() => { document.title = "Renamed live source" })
+      await expect(profileSource.locator(`option[value="${sourceId}"]`)).toContainText("Renamed live source")
+      await target.close()
+      await expect(targetChoices).not.toContainText("Live target")
+      await expect(profileSource).toHaveValue(String(sourceId))
+      await extensionPage.getByRole("button", { name: "Cancel", exact: true }).click()
+    } finally {
+      await source.close()
+      if (!target.isClosed()) await target.close()
+    }
   })
 
   test("selects curated API models, preserves choices, resets, and clears Claude permissions and secrets", async () => {
@@ -177,7 +210,8 @@ test.describe.serial("Personal Mapping Profile orchestration", () => {
       })
       await extensionPage.reload(); await extensionPage.getByText("Use Non-AI ZeroKey Profile", { exact: true }).click()
     }
-    await expect(extensionPage.getByRole("combobox", { name: "Gemini · API model" })).toHaveValue("gemini-3.5-flash-lite")
+    await expect(extensionPage.getByRole("combobox", { name: "AI Model", exact: true })).toHaveValue("")
+    await expect(extensionPage.getByText("API settings", { exact: true })).toHaveCount(0)
   })
 
   test("creates, reopens, runs, resets, and deletes a Mapping Profile", async () => {

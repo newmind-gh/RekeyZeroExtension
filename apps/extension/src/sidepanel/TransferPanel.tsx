@@ -69,7 +69,7 @@ export function TransferPanel() {
         let current = await command({ type: "GET_TRANSFER" })
         const openTabs = (await chrome.tabs.query({})).filter((tab) => tab.id && tab.url && /^https?:/.test(tab.url))
         const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true })
-        const initialSourceId = current.sourceTabId ??
+        const initialSourceId = (openTabs.some((tab) => tab.id === current.sourceTabId) ? current.sourceTabId : undefined) ??
           (activeTab?.id && openTabs.some((tab) => tab.id === activeTab.id) ? activeTab.id : openTabs[0]?.id)
         knownTabIdsRef.current = new Set(openTabs.map((tab) => tab.id!))
         sourceTabIdRef.current = initialSourceId
@@ -132,7 +132,7 @@ export function TransferPanel() {
         const previousIds = knownTabIdsRef.current
         const openIds = new Set(openTabs.map((tab) => tab.id!))
         let sourceId = sourceTabIdRef.current
-        if (sourceId && !openIds.has(sourceId)) {
+        if (!sourceId || !openIds.has(sourceId)) {
           const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true })
           sourceId = activeTab?.id && openIds.has(activeTab.id) ? activeTab.id : openTabs[0]?.id
           sourceTabIdRef.current = sourceId
@@ -181,20 +181,25 @@ export function TransferPanel() {
       setSelected((ids) => ids.filter((id) => id !== sourceTabId && openTabs.some((tab) => tab.id === id)))
     } catch (caught) { setProfileError(caught instanceof Error ? caught.message : "Unable to refresh open tabs") }
   }
+  const observeSource = async (tabId: number) => {
+    const tab = tabs.find((candidate) => candidate.id === tabId)
+    if (!tab?.url || !/^https?:/.test(tab.url)) throw new Error("Select an available source webpage")
+    if (!await chrome.permissions.request({ origins: [`${new URL(tab.url).origin}/*`] })) throw new Error("Source access was declined")
+    let current = await command<Session>({ type: "GET_TRANSFER" })
+    const group = current.sourceTabId === tabId ? current.source?.group : undefined
+    const duplicateTarget = current.targets.find((target) => target.tabId === tabId)
+    if (duplicateTarget) current = await command({ type: "REMOVE_TARGET", targetId: duplicateTarget.id })
+    current = await command({ type: "SET_SOURCE", tabId, group })
+    setSession(current)
+    sourceTabIdRef.current = tabId
+    setSourceTabId(tabId)
+    setSelected((ids) => ids.filter((id) => id !== tabId))
+  }
   const selectSource = async (tabId: number, section: "profile" | "ai-fill" = "profile") => {
     const setError = section === "ai-fill" ? setAiFillError : setProfileError
     setBusy(true); setError("")
     try {
-      const tab = tabs.find((candidate) => candidate.id === tabId)
-      if (!tab?.url || !tab.id) return
-      if (!await chrome.permissions.request({ origins: [`${new URL(tab.url).origin}/*`] })) throw new Error("Source access was declined")
-      let current: Session = session ?? await command<Session>({ type: "GET_TRANSFER" })
-      const duplicateTarget = current.targets.find((target) => target.tabId === tabId)
-      if (duplicateTarget) current = await command({ type: "REMOVE_TARGET", targetId: duplicateTarget.id })
-      current = await command({ type: "SET_SOURCE", tabId })
-      setSession(current)
-      sourceTabIdRef.current = tabId
-      setSourceTabId(tabId)
+      await observeSource(tabId)
       setSelected(tabs.filter((candidate) => candidate.id !== tabId).map((candidate) => candidate.id!))
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to select the source tab") }
     finally { setBusy(false) }
@@ -313,6 +318,7 @@ export function TransferPanel() {
   const startCreateFillSetup = () => {
     setCreatingFillSetup(true); setEditingFillSetupId(""); setFillSetupName("AI ZeroKey Profile")
     setFillSetupSourceUrl(""); setFillSetupTargetUrls(""); setFillSetupStatus(""); setAiFillError("")
+    void refreshTabs()
   }
   const openFillSetup = () => {
     const setup = fillSetups.find((candidate) => candidate.id === selectedFillSetupId)
@@ -549,11 +555,14 @@ export function TransferPanel() {
   )
   const profileSessionError = activeSessionIsAiFill ? "" : session?.error ?? ""
   const aiFillSessionError = activeSessionIsAiFill ? session?.error ?? "" : ""
-  const selectedApiModel = localAi?.apiModels?.find((model) => model.id === (localAi.selectedModelId ?? apiProviderId))
+  const selectedApiModel = localAi?.apiModels?.find((model) => model.id === localAi.selectedModelId)
   const selectedApiOption = selectedApiModel?.models.find((model) => model.id === apiModelName)
+  const selectedAiReady = Boolean(localAi?.selectedModelId && localAi.selectedModelId === localAi.localModelId
+    && localAi.localModelEnabled && localAi.localModelStatus === "ready")
   return <main className="transfer-panel">
+    {!creatingProfile && <section className="card ai-fill-setup">
     <header className="transfer-header">
-      <h1>RekeyZero Personal</h1>
+      <h2>AI ZeroKey Profile</h2>
       <button
         type="button"
         className="workspace-settings"
@@ -562,25 +571,12 @@ export function TransferPanel() {
         onClick={() => void chrome.runtime.openOptionsPage().catch((caught) => setProfileError(caught instanceof Error ? caught.message : "Unable to open RekeyZero Admin"))}
       ><Settings aria-hidden="true" size={18} /></button>
     </header>
-    {!creatingProfile && <section className="card ai-fill-setup"><h2>AI ZeroKey Profile</h2>
-      <div className="current-source"><h3>Current Source</h3>
-        <label>Source page<select aria-label="Current source tab" value={sourceTabId ?? ""} disabled={busy || frozen} onChange={(event) => void selectSource(Number(event.target.value), "ai-fill")}>
-          <option value="" disabled>Select a source tab</option>{tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.title || new URL(tab.url!).hostname}</option>)}
-        </select></label>
-        {session?.source && <p>{session.source.fields.length} fields · {session.source.fields.filter((field) => !isBlankSourceValue(field.value)).length} populated · {session.source.fields.filter((field) => isBlankSourceValue(field.value)).length} blank</p>}
-        <button type="button" disabled={busy || frozen || !sourceTabId} onClick={() => sourceTabId && void selectSource(sourceTabId, "ai-fill")}>Observe source page</button>
-        {session?.source?.truncated && <p className="help">Partial scan: first 120 eligible controls only. Select a source section before preparing a larger form.</p>}
-        {!frozen && session?.source && session.source.availableGroups.length > 1 && <label>Source section<select aria-label="Prepare source section" value={session.source.group} disabled={busy}
-          onChange={(event) => void run({ type: "SET_SOURCE", tabId: session.sourceTabId!, group: event.target.value }, "ai-fill")}>
-          <option value="">All sections (up to 120 controls)</option>{session.source.availableGroups.map((group) => <option key={group} value={group}>{group}</option>)}
-        </select></label>}
-      </div>
       {aiFillError && <div className="error" role="alert">{aiFillError}</div>}
       {!aiFillError && aiFillSessionError && <div className="error" role="alert">{aiFillSessionError}</div>}
       {fillSetupStatus && <p className="fill-setup-status" role="status">{fillSetupStatus}</p>}
       <select
         aria-label="AI Model"
-        value={localAi?.selectedModelId ?? apiProviderId}
+        value={localAi?.selectedModelId ?? ""}
         disabled={busy || !localAi}
         onChange={(event) => { if (event.target.value) selectAiModel(event.target.value) }}
       >
@@ -623,23 +619,46 @@ export function TransferPanel() {
           <button className="secondary" disabled={busy || !selectedApiModel.configured} onClick={() => void resetApiProvider()}>Reset</button>
         </div>
       </details>}
-      <PrepareSourceCard source={session?.source} tabId={sourceTabId} busy={busy || frozen} onBusy={setBusy}
-        aiReady={Boolean(localAi?.apiModelId === localAi?.selectedModelId && selectedApiModel?.status === "ready")}
-        supportsExtraction={Boolean(localAi?.localModels.find((model) => model.id === (localAi.selectedModelId ?? apiProviderId))?.supportedTasks?.includes("source_extract"))}
-        onComplete={async () => setSession(await command({ type: "GET_TRANSFER" }))} />
+      <PrepareSourceCard tabId={sourceTabId} busy={busy || frozen} onBusy={setBusy}
+        aiReady={selectedAiReady}
+        onObserve={async () => {
+          if (sourceTabId === undefined) throw new Error("Select a source tab")
+          await observeSource(sourceTabId)
+        }}
+        onComplete={async () => setSession(await command({ type: "GET_TRANSFER" }))}>
+        <div className="current-source">
+          <label>Source page<select aria-label="Current source tab" value={sourceTabId ?? ""} disabled={busy || frozen}
+            onFocus={() => void refreshTabs()}
+            onChange={(event) => {
+              const id = Number(event.target.value)
+              sourceTabIdRef.current = id; setSourceTabId(id)
+              setSelected((ids) => ids.filter((tabId) => tabId !== id))
+            }}>
+            <option value="" disabled>Select a source tab</option>{tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.title || new URL(tab.url!).hostname} · {tab.url}</option>)}
+          </select></label>
+          {session?.sourceTabId === sourceTabId && session?.source && <>
+            <p>{session.source.fields.length} fields · {session.source.fields.filter((field) => !isBlankSourceValue(field.value)).length} populated · {session.source.fields.filter((field) => isBlankSourceValue(field.value)).length} blank</p>
+            {session.source.truncated && <p className="help">Partial scan: first 120 eligible controls only. Select a source section before preparing a larger form.</p>}
+            {!frozen && session.source.availableGroups.length > 1 && <label>Source section<select aria-label="Prepare source section" value={session.source.group} disabled={busy}
+              onChange={(event) => void run({ type: "SET_SOURCE", tabId: sourceTabId!, group: event.target.value }, "ai-fill")}>
+              <option value="">All sections (up to 120 controls)</option>{session.source.availableGroups.map((group) => <option key={group} value={group}>{group}</option>)}
+            </select></label>}
+          </>}
+        </div>
+      </PrepareSourceCard>
       <h3>AI Mapping</h3>
       <select aria-label="AI Transfer Profile" value={selectedFillSetupId} disabled={disabled} onChange={(event) => setSelectedFillSetupId(event.target.value)}><option value="" disabled>{fillSetups.length ? "Select a profile" : "No profiles available"}</option>{fillSetups.map((setup) => <option key={setup.id} value={setup.id}>{setup.name}</option>)}</select>
       <button disabled={disabled} onClick={startCreateFillSetup}>Create Profile</button>
       <button disabled={disabled || !selectedFillSetupId} onClick={openFillSetup}>Open Profile</button>
-      <div className="profile-run-actions"><button aria-label="Fill with saved AI ZeroKey Profile" disabled={disabled || !selectedFillSetupId} onClick={() => void prepareAndFill(selectedFillSetupId)}>Fill</button><button aria-label="Reset AI ZeroKey Profile" disabled={busy || !selectedFillSetupId} onClick={() => { setFillSetupStatus("Active fill reset. The saved ZeroKey Profile is unchanged."); void run({ type: "RESET_TRANSFER" }, "ai-fill") }}>Reset</button></div>
+      <div className="profile-run-actions"><button aria-label="Fill Targets" disabled={disabled || !selectedFillSetupId} onClick={() => void prepareAndFill(selectedFillSetupId)}>Fill Targets</button><button aria-label="Reset AI ZeroKey Profile" disabled={busy || !selectedFillSetupId} onClick={() => { setFillSetupStatus("Active fill reset. The saved ZeroKey Profile is unchanged."); void run({ type: "RESET_TRANSFER" }, "ai-fill") }}>Reset</button></div>
       {creatingFillSetup && <div className="fill-setup-editor"><h3>{editingFillSetupId ? "Open Profile" : "Create Profile"}</h3>
         <label>Profile name<input placeholder="AI ZeroKey Profile" value={fillSetupName} onChange={(event) => setFillSetupName(event.target.value)} /></label>
-        <label>Source tab<select aria-label="AI ZeroKey Profile source tab" value={sourceTabId ?? ""} disabled={disabled} onChange={(event) => { const id = Number(event.target.value); sourceTabIdRef.current = id; setSourceTabId(id); setSelected((current) => current.filter((tabId) => tabId !== id)) }}><option value="" disabled>Select a source tab</option>{tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.title || new URL(tab.url!).hostname}</option>)}</select></label>
+        <label>Source tab<select aria-label="AI ZeroKey Profile source tab" value={sourceTabId ?? ""} disabled={disabled} onFocus={() => void refreshTabs()} onChange={(event) => { const id = Number(event.target.value); sourceTabIdRef.current = id; setSourceTabId(id); setSelected((current) => current.filter((tabId) => tabId !== id)) }}><option value="" disabled>Select a source tab</option>{tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.title || new URL(tab.url!).hostname} · {tab.url}</option>)}</select></label>
         <label>Or enter source URL<input type="url" placeholder="https://source.example/customer/123" value={fillSetupSourceUrl} onChange={(event) => setFillSetupSourceUrl(event.target.value)} /></label>
         <div className="section-title"><h3>Target tabs</h3><span>{selected.length} selected</span></div>
         <div className="transfer-tabs">{tabs.filter((tab) => tab.id !== sourceTabId).map((tab) => <label key={tab.id}><input type="checkbox" disabled={disabled} checked={selected.includes(tab.id!)} onChange={(event) => setSelected(event.target.checked ? [...new Set([...selected, tab.id!])] : selected.filter((id) => id !== tab.id))} /><span><strong>{tab.title || new URL(tab.url!).hostname}</strong><small>{tab.url}</small></span></label>)}</div>
         <label>Additional target URLs <small>One URL per line</small><textarea placeholder={"https://target-one.example/form\nhttps://target-two.example/form"} value={fillSetupTargetUrls} onChange={(event) => setFillSetupTargetUrls(event.target.value)} /></label>
-        <button disabled={disabled || !fillSetupName.trim() || !localAi?.localModelEnabled || localAi.localModelStatus !== "ready"} onClick={() => void saveFillSetup()}>Save Profile</button>
+        <button disabled={disabled || !fillSetupName.trim() || !selectedAiReady} onClick={() => void saveFillSetup()}>Save Profile</button>
         <button className="secondary" disabled={disabled} onClick={() => { setCreatingFillSetup(false); setEditingFillSetupId("") }}>Cancel</button>
       </div>}
     </section>}

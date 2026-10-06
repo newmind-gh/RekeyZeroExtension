@@ -17,6 +17,8 @@ import { logPersonalRuntimeError } from "../personal/storage/runtime-error-log"
 import { invalidateTransferTab, resetTransferRuntime, transferCommand, transferTabReady } from "../transfer/controller"
 import type { Command as TransferCommand, Session } from "../transfer/types"
 import { localModel } from "../personal/ai/model-registry"
+import { LocalModelProvider } from "../personal/ai/local-model-provider"
+import type { PersonalModelProvider } from "../personal/ai/model-provider"
 import { clearSourcePrepare, getSourcePrepare, prepareSource, safePrepareError, showSourcePrepareEvidence, undoSourcePrepare } from "../personal/source-prepare/source-prepare-service"
 import { sourceDocumentsForExtraction } from "../personal/source-prepare/source-prepare-store"
 
@@ -178,17 +180,25 @@ async function handleWorkspaceRequest(request: WorkerRequest): Promise<unknown> 
     return session.sourceTabId === undefined ? null : getSourcePrepare(session.sourceTabId)
   }
   if (request.type === "PERSONAL_PREPARE_SOURCE") {
-    const modelId = await selectedApiModelId()
-    if (!modelId) throw new Error("This model does not support document extraction. Choose another AI model.")
-    const definition = builtinApiModel(modelId)
-    if (!definition.supportedTasks.includes("source_extract")) throw new Error("This model does not support document extraction. Choose another AI model.")
-    const config = await builtinApiModelConfig(modelId)
-    if (!config.hasKey) throw new Error(`Select and configure ${definition.displayName} before preparing the source`)
-    if (!await chrome.permissions.contains({ origins: [`${definition.origin}/*`] })) throw new Error("Allow this website before using its AI provider")
+    let modelId = await selectedApiModelId()
+    let provider: PersonalModelProvider
+    if (modelId) {
+      const definition = builtinApiModel(modelId)
+      const config = await builtinApiModelConfig(modelId)
+      if (!config.hasKey) throw new Error(`Select and configure ${definition.displayName} before preparing the source`)
+      if (!await chrome.permissions.contains({ origins: [`${definition.origin}/*`] })) throw new Error("Allow this website before using its AI provider")
+      provider = new DirectApiProvider(definition, config.model)
+    } else {
+      const settings = await personalAdmin.aiSettings()
+      if (!settings.localModelEnabled || !settings.localModelId) throw new Error("Select an AI model before preparing the source")
+      modelId = settings.localModelId
+      provider = new LocalModelProvider(modelId)
+      if ((await provider.health()).status !== "ready") throw new Error("The selected local AI model is not ready")
+    }
     const source = await transferCommand({ type: "GET_TRANSFER" }) as Session
     if (source.sourceTabId === undefined) throw new Error("Select and observe a source page before preparing it")
     const documents = await sourceDocumentsForExtraction(source.sourceTabId, request.documentIds)
-    return prepareSource(documents, modelId, new DirectApiProvider(definition, config.model))
+    return prepareSource(documents, modelId, provider)
   }
   if (request.type === "PERSONAL_UNDO_PREPARE_SOURCE") return undoSourcePrepare(request.sessionId)
   if (request.type === "PERSONAL_CLEAR_PREPARE_SOURCE") return clearSourcePrepare(request.sessionId)

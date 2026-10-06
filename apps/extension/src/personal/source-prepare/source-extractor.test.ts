@@ -4,6 +4,8 @@ import { extractSourceFields } from "./source-extractor"
 import type { PreparedDocument } from "./source-prepare-session"
 import { redactPrivacyEntities } from "./privacy-engine"
 import type { DetectedEntity, EntityType } from "@doccloak/core"
+import { LOCAL_MODELS } from "../ai/model-registry"
+import type { ModelRequest, PersonalModelProvider } from "../ai/model-provider"
 
 const local: Record<string, unknown> = {}, session: Record<string, unknown> = {}
 const storage = (values: Record<string, unknown>) => ({
@@ -62,5 +64,30 @@ describe("source extraction across direct API providers", () => {
       : definition.protocol === "anthropic" ? { content: [{ type: "text", text }] }
       : { choices: [{ message: { content: text } }] }))))
     await expect(extractSourceFields(new DirectApiProvider(definition, definition.defaultModel), fields, documents, new AbortController().signal)).rejects.toThrow("AI returned invalid extraction JSON twice")
+  })
+})
+
+describe("source extraction with the selected local model", () => {
+  it.each(LOCAL_MODELS)("$displayName extracts each field locally with all redacted evidence", async (model) => {
+    expect(model.supportedTasks).toEqual(expect.arrayContaining(["field_match", "source_extract"]))
+    const completeJson = vi.fn(async (request: ModelRequest) => {
+      const input = request.input as { fields: typeof fields }
+      return { output: { decisions: input.fields.map((field) => ({ fieldKey: field.fieldKey, value: null, status: "not_found", evidence: [] })) },
+        providerId: "personal-local-lite", modelId: model.id, rawResponses: [] }
+    })
+    const provider = { id: model.id, kind: "browser_local", health: async () => ({ status: "ready" }), completeJson } as unknown as PersonalModelProvider
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+    const twoFields = [...fields, { ...fields[0], fieldKey: "field_002", label: "Trading name" }]
+    const result = await extractSourceFields(provider, twoFields, documents, new AbortController().signal)
+    expect(result).toEqual({ decisions: twoFields.map((field) => ({ fieldKey: field.fieldKey, value: null, status: "not_found", evidence: [] })) })
+    expect(completeJson).toHaveBeenCalledTimes(2)
+    for (const [request] of completeJson.mock.calls) {
+      expect(request.task).toBe("source_extract")
+      expect(request.maxTokens).toBe(512)
+      expect(request.input).toMatchObject({ documents: [{ documentId: "doc", markdown: documents[0].privacy.redactedMarkdown }] })
+      expect((request.input as { fields: unknown[] }).fields).toHaveLength(1)
+    }
+    expect(fetch).not.toHaveBeenCalled()
   })
 })
